@@ -2816,7 +2816,7 @@ function buildCrossTable(total) {
     const allCells = GROUPS.map(g => {
       if (!gids.includes(g.id)) {
         // 班が存在しない → 濃いグレー
-        return `<td style="background:#D0DDE8"></td>`;
+        return `<td style="height:40px;background:#D0DDE8"></td>`;
       }
       const cnt    = responses.filter(r => r.branch === b.id && r.group === g.id).length;
       const key    = b.id + "_" + g.id;
@@ -2824,19 +2824,17 @@ function buildCrossTable(total) {
 
       if (cnt === 0 && !online) {
         // 未参加 → タップでオンライン登録
-        return `<td style="text-align:center;cursor:pointer;color:#CBD5E1;font-size:10px"
-                    onclick="toggleOnline('${b.id}','${g.id}')" title="タップでオンライン参加に変更">
-                  －
-                </td>`;
+        return `<td style="height:40px;text-align:center;cursor:pointer;color:#CBD5E1;font-size:10px"
+                    onclick="toggleOnline('${b.id}','${g.id}')" title="タップでオンライン参加に変更">－</td>`;
       } else if (online) {
         // オンライン参加 → タップで取消
-        return `<td style="text-align:center;cursor:pointer;background:#EFF6FF"
+        return `<td style="height:40px;padding:0;text-align:center;cursor:pointer;background:#EFF6FF"
                     onclick="toggleOnline('${b.id}','${g.id}')" title="タップで取消">
-                  <span style="font-size:18px">💻</span>
+                  <div style="display:flex;align-items:center;justify-content:center;height:40px;font-size:16px">💻</div>
                 </td>`;
       } else {
         // 対面参加あり
-        return `<td style="text-align:center;font-weight:700;color:#1D6FA4">${cnt}</td>`;
+        return `<td style="height:40px;text-align:center;font-weight:700;color:#1D6FA4">${cnt}</td>`;
       }
     }).join("");
 
@@ -2844,14 +2842,16 @@ function buildCrossTable(total) {
     const onlineCnt = gids.filter(gid => onlineKeys.has(b.id + "_" + gid)).length;
     const rowTotal  = taimenCnt + onlineCnt;
     const breakdown = onlineCnt > 0
-      ? `<span style="font-size:9px;color:#6B8299;display:block">対面${taimenCnt}/💻${onlineCnt}</span>`
-      : "";
+      ? `<span style="font-size:9px;color:#6B8299;line-height:1.1">対面${taimenCnt}/💻${onlineCnt}</span>`
+      : `<span style="font-size:9px;line-height:1.1">&nbsp;</span>`;
 
     return `<tr>
-      <td style="font-weight:700;white-space:nowrap;font-size:12px">${b.label}</td>
+      <td style="height:40px;font-weight:700;white-space:nowrap;font-size:12px">${b.label}</td>
       ${allCells}
-      <td style="text-align:center;font-weight:700;color:#1D6FA4;background:#F0F7FF">
-        ${rowTotal}${breakdown}
+      <td style="height:40px;padding:4px 10px;text-align:center;font-weight:700;color:#1D6FA4;background:#F0F7FF">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%">
+          <span>${rowTotal}</span>${breakdown}
+        </div>
       </td>
     </tr>`;
   }).join("");
