@@ -658,6 +658,155 @@ td {
   100% { box-shadow: 0 0 0 0 rgba(29,111,164,0); background-color: inherit; }
 }
 .tap-flash { animation: tapFlash .64s ease both; }
+/* ─── 座席案内オーバーレイ ─── */
+.seat-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.6);
+  z-index: 500;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow-y: auto;
+  padding: 16px 12px calc(16px + env(safe-area-inset-bottom,0px));
+  padding-top: calc(16px + env(safe-area-inset-top,0px));
+}
+.seat-overlay.visible { display: flex; }
+.seat-sheet {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  padding: 16px 14px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: var(--shadow-lg);
+  animation: popIn .22s ease both;
+}
+.seat-heading {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--text);
+  text-align: center;
+  margin-bottom: 4px;
+}
+.seat-sub {
+  font-size: 12px;
+  color: var(--gray-500);
+  text-align: center;
+  margin-bottom: 14px;
+}
+.seat-map {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin-bottom: 12px;
+}
+.seat-block {
+  border: 2px solid var(--gray-100);
+  border-radius: var(--radius-sm);
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-height: 80px;
+  position: relative;
+  background: var(--white);
+}
+.seat-block.highlight {
+  border: 4px solid var(--blue);
+  background: var(--blue-light);
+  box-shadow: 0 0 0 3px rgba(29,111,164,.25);
+}
+.seat-block.empty {
+  border: none;
+  background: transparent;
+}
+.seat-block-name {
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--text);
+  text-align: center;
+  line-height: 1.2;
+}
+.seat-block.highlight .seat-block-name { color: var(--blue); }
+.seat-circles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+}
+.seat-circle {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--gray-100);
+  background: var(--gray-50);
+}
+.seat-block.highlight .seat-circle { border-color: var(--blue); background: white; }
+.seat-circle.active {
+  background: var(--blue);
+  border-color: var(--blue-dark);
+}
+.honbu-bar {
+  grid-column: 1 / -1;
+  border: 2px solid var(--gray-100);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gray-500);
+  background: var(--gray-50);
+}
+.seat-confirm-btn {
+  width: 100%;
+  padding: 18px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--blue);
+  color: var(--white);
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity .15s;
+}
+.seat-confirm-btn:active { opacity: .8; }
+.seat-your-seat {
+  background: var(--blue);
+  color: white;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+/* ─── トグルスイッチ ─── */
+.toggle-wrap { flex-shrink: 0; cursor: pointer; }
+.toggle-track {
+  width: 52px;
+  height: 30px;
+  border-radius: 15px;
+  background: var(--gray-100);
+  position: relative;
+  transition: background .2s;
+}
+.toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+  transition: transform .2s;
+}
+.toggle-track.on { background: var(--blue); }
+.toggle-track.on::after { transform: translateX(22px); }
 </style>
 </head>
 <body>
@@ -678,6 +827,7 @@ td {
     </div>
     <button class="nav-btn active" id="navInput"  onclick="showTab('input')">入力</button>
     <button class="nav-btn"        id="navResult" onclick="showTab('result')">集計結果</button>
+    <button class="nav-btn"        id="navSettings" onclick="openSettings()" style="font-size:16px;padding:6px 10px">⚙️</button>
   </div>
 </header>
 
@@ -730,6 +880,52 @@ td {
 </div>
 
 <!-- ダイアログ -->
+<!-- 設定モーダル -->
+<div class="overlay" id="settingsOverlay" style="align-items:flex-start;padding-top:60px">
+  <div class="dialog" style="max-width:380px;width:100%;text-align:left">
+    <div style="font-size:20px;font-weight:900;color:var(--text);margin-bottom:18px;text-align:center">⚙️ 設定</div>
+
+    <div style="display:flex;flex-direction:column;gap:16px;margin-bottom:24px">
+
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--text)">💬 班長LINE登録画面</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">班長LINEへの登録状況を入力するステップを表示します</div>
+        </div>
+        <div class="toggle-wrap" onclick="toggleSetting('showBanchoLine')">
+          <div class="toggle-track" id="toggle_showBanchoLine"></div>
+        </div>
+      </label>
+
+      <div style="border-top:1px solid var(--gray-100)"></div>
+
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--text)">🏘️ 公式LINE登録画面</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">小川自治会公式LINEへの登録状況を入力するステップを表示します</div>
+        </div>
+        <div class="toggle-wrap" onclick="toggleSetting('showJichikaiLine')">
+          <div class="toggle-track" id="toggle_showJichikaiLine"></div>
+        </div>
+      </label>
+
+    </div>
+
+    <button class="dialog-btn" style="width:100%;background:var(--blue);color:white" onclick="closeSettings()">閉じる</button>
+  </div>
+</div>
+
+<!-- 座席案内オーバーレイ -->
+<div class="seat-overlay" id="seatOverlay">
+  <div class="seat-sheet">
+    <div class="seat-heading">🪑 お席のご案内</div>
+    <div class="seat-sub">下記のハイライトされた席にお座りください</div>
+    <div class="seat-your-seat" id="seatYourSeat">　</div>
+    <div class="seat-map" id="seatMap"></div>
+    <button class="seat-confirm-btn" onclick="closeSeatOverlay()">確認しました ✓</button>
+  </div>
+</div>
+
 <div class="overlay" id="dialogOverlay">
   <div class="dialog">
     <div style="font-size:46px;margin-bottom:10px" id="dlgIcon"></div>
@@ -2234,6 +2430,22 @@ const QR_DATA_URI = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUND
 let DB_URL      = "https://ogawa-enquete-default-rtdb.firebaseio.com";
 let step        = 0;
 let answers     = {};
+
+// ─── 設定 ───
+// localStorage から復元、なければデフォルト true
+let settings = (() => {
+  try {
+    const s = JSON.parse(localStorage.getItem("yakuinkai_settings") || "{}");
+    return {
+      showBanchoLine:   s.showBanchoLine   !== false,
+      showJichikaiLine: s.showJichikaiLine !== false,
+    };
+  } catch { return { showBanchoLine: true, showJichikaiLine: true }; }
+})();
+
+function saveSettings() {
+  try { localStorage.setItem("yakuinkai_settings", JSON.stringify(settings)); } catch {}
+}
 let responses   = [];
 let activeChart = "cross";
 let currentDialog = null;
@@ -2345,20 +2557,7 @@ function setLastSync() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 画面切替
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function showTab(name) {
-  ["screenInput","screenResult"].forEach(id =>
-    document.getElementById(id).classList.remove("visible"));
-  document.getElementById("navInput").classList.remove("active");
-  document.getElementById("navResult").classList.remove("active");
-  if (name === "input") {
-    document.getElementById("screenInput").classList.add("visible");
-    document.getElementById("navInput").classList.add("active");
-  } else {
-    document.getElementById("screenResult").classList.add("visible");
-    document.getElementById("navResult").classList.add("active");
-    fetchData(true);
-  }
-}
+
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ステップ管理
@@ -2369,35 +2568,45 @@ const JICHIKAI_QR_DATA_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // 班長LINE=未登録 → 班長QR表示
-function needsBanchoQR()   { return answers.line === "unregistered"; }
-// 班長LINE=未使用 → 自治会LINE画面をスキップ
-function skipJichikai()    { return answers.line === "no_line"; }
-// 自治会LINE=未登録 → 自治会QR表示
-function needsJichikaiQR() { return answers.jichikai_line === "unregistered"; }
-
-// 自治会LINE状況選択のステップ番号
-function jichikaiLineStep() { return needsBanchoQR() ? 4 : 3; }
-// 自治会LINE QRのステップ番号
-function jichikaiQRStep()   { return needsBanchoQR() ? 5 : 4; }
-// 確認画面のステップ番号
-function confirmStep() {
-  if (skipJichikai())     return 3;
-  if (needsJichikaiQR()) return needsBanchoQR() ? 6 : 5;
-  return needsBanchoQR() ? 5 : 4;
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// フロー管理（名前付き配列方式）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// settings と answers に基づいてアクティブなステップ名の配列を返す
+function getFlow() {
+  const f = ["branch", "group"];
+  if (settings.showBanchoLine) {
+    f.push("banchoLine");
+    if (answers.line === "unregistered") f.push("banchoQR");
+  }
+  if (settings.showJichikaiLine && answers.line !== "no_line") {
+    f.push("jichikaiLine");
+    if (answers.jichikai_line === "unregistered") f.push("jichikaiQR");
+  }
+  f.push("confirm");
+  return f;
 }
 
-// プログレスバーラベル（既知の回答を元に動的生成）
+// 後方互換ヘルパー（Firebase送信・集計等が参照）
+function needsBanchoQR()   { return settings.showBanchoLine && answers.line === "unregistered"; }
+function skipJichikai()    { return settings.showBanchoLine && answers.line === "no_line"; }
+function needsJichikaiQR() { return settings.showJichikaiLine && answers.jichikai_line === "unregistered"; }
+
+// 現在のステップ名
+function currentStepName() { return getFlow()[step]; }
+
+// プログレスバーラベル
 function progressLabels() {
-  if (skipJichikai()) return ["支部選択","班選択","班長LINE","確認"];
-  const labels = ["支部選択","班選択","班長LINE"];
-  if (needsBanchoQR())    labels.push("班長QR");
-  labels.push("自治会LINE");
-  if (needsJichikaiQR()) labels.push("自治会QR");
-  labels.push("確認");
-  return labels;
+  const map = {
+    branch: "支部選択", group: "班選択",
+    banchoLine: "班長LINE", banchoQR: "班長QR",
+    jichikaiLine: "自治会LINE", jichikaiQR: "自治会QR",
+    confirm: "確認"
+  };
+  return getFlow().map(s => map[s] || s);
 }
 
 function buildStep() {
+  const flow   = getFlow();
   const labels = progressLabels();
 
   // プログレスバー
@@ -2418,14 +2627,15 @@ function buildStep() {
   // 戻るボタン
   document.getElementById("backBtn").classList.toggle("visible", step > 0);
 
-  // コンテンツ描画（全パス共通のstep番号→画面のルーティング）
-  if      (step === 0)                                              buildBranchStep();
-  else if (step === 1)                                              buildGroupStep();
-  else if (step === 2)                                              buildLineStep();          // 班長LINE状況
-  else if (step === 3 && needsBanchoQR())                           buildBanchoQRStep();      // 班長QR（未登録のみ）
-  else if (step === jichikaiLineStep() && !skipJichikai())          buildJichikaiLineStep();  // 自治会LINE状況
-  else if (step === jichikaiQRStep() && needsJichikaiQR())          buildJichikaiQRStep();    // 自治会QR（未登録のみ）
-  else                                                              buildConfirmStep();
+  // ステップ名でルーティング
+  const name = flow[step] || "confirm";
+  if      (name === "branch")       buildBranchStep();
+  else if (name === "group")        buildGroupStep();
+  else if (name === "banchoLine")   buildLineStep();
+  else if (name === "banchoQR")     buildBanchoQRStep();
+  else if (name === "jichikaiLine") buildJichikaiLineStep();
+  else if (name === "jichikaiQR")   buildJichikaiQRStep();
+  else                              buildConfirmStep();
 }
 
 // ── 支部選択 ──
@@ -2517,7 +2727,12 @@ function buildGroupStep() {
 
 function selectGroup(id) {
   answers.group = id;
-  setTimeout(() => { step = 2; buildStep(); }, 220);
+  setTimeout(() => {
+    const flow = getFlow();
+    step = flow.indexOf("group") + 1; // groupの次のステップへ
+    if (step >= flow.length) step = flow.length - 1;
+    buildStep();
+  }, 220);
 }
 
 // ── LINE登録状況 ──
@@ -2544,8 +2759,9 @@ function selectLine(id) {
   answers.line = id;
   answers.jichikai_line = null; // 班長LINE変更時は自治会LINE回答をリセット
   setTimeout(() => {
-    // no_line → step 3 = 確認、それ以外 → step 3 = 班長QR or 自治会LINE状況
-    step = 3;
+    const flow = getFlow(); // answers.line が確定した後に再計算
+    step = flow.indexOf("banchoLine") + 1;
+    if (step >= flow.length) step = flow.length - 1;
     buildStep();
   }, 220);
 }
@@ -2569,7 +2785,9 @@ function buildBanchoQRStep() {
 }
 
 function goToJichikaiLine() {
-  step = jichikaiLineStep();
+  const flow = getFlow();
+  const idx = flow.indexOf("jichikaiLine");
+  step = idx >= 0 ? idx : flow.indexOf("confirm");
   buildStep();
 }
 
@@ -2598,7 +2816,10 @@ function buildJichikaiLineStep() {
 function selectJichikaiLine(id) {
   answers.jichikai_line = id;
   setTimeout(() => {
-    step = (id === "unregistered") ? jichikaiQRStep() : confirmStep();
+    const flow = getFlow(); // jichikai_line確定後に再計算
+    const jlIdx = flow.indexOf("jichikaiLine");
+    step = jlIdx + 1;
+    if (step >= flow.length) step = flow.length - 1;
     buildStep();
   }, 220);
 }
@@ -2622,7 +2843,8 @@ function buildJichikaiQRStep() {
 }
 
 function goToConfirm() {
-  step = confirmStep();
+  const flow = getFlow();
+  step = flow.indexOf("confirm");
   buildStep();
 }
 
@@ -2670,7 +2892,11 @@ function buildConfirmStep() {
 }
 
 function goBack() {
-  if (step > 0) { step--; buildStep(); }
+  if (step > 0) {
+    step--;
+    // 戻るときはフローを後退するだけ（答えはそのまま）
+    buildStep();
+  }
 }
 
 // stepContent の差し替えでアニメをリセット
@@ -2716,14 +2942,18 @@ async function dialogOK() {
     const line   = LINE_STATUS.find(l => l.id === answers.line);
     const jLine  = LINE_STATUS.find(l => l.id === answers.jichikai_line);
     // 未登録→QR経由の場合は「QRで登録」に変更
-    const lineLabel = answers.line === "unregistered"
-      ? "QRで登録"
-      : line?.label.replace("\n", "");
-    const jichikaiLineLabel = skipJichikai()
-      ? "（スキップ）"
-      : answers.jichikai_line === "unregistered"
+    const lineLabel = !settings.showBanchoLine
+      ? "（画面なし）"
+      : answers.line === "unregistered"
         ? "QRで登録"
-        : jLine?.label.replace("\n", "") ?? "";
+        : line?.label.replace("\n", "");
+    const jichikaiLineLabel = !settings.showJichikaiLine
+      ? "（画面なし）"
+      : skipJichikai()
+        ? "（スキップ）"
+        : answers.jichikai_line === "unregistered"
+          ? "QRで登録"
+          : jLine?.label.replace("\n", "") ?? "";
     await pushResponse({
       branch:            answers.branch,
       branchLabel:       branch?.label,
@@ -2738,10 +2968,12 @@ async function dialogOK() {
     });
     await fetchData(false);
     setSyncing(false);
+    const savedBranch = answers.branch;
+    const savedGroup  = answers.group;
     answers = {};
     step    = 0;
-    buildStep();
     showToast(`✅ 登録しました（${responses.length}件目）`);
+    showSeatOverlay(savedBranch, savedGroup);
 
   } else if (type === "edit") {
     answers = {};
@@ -2844,16 +3076,15 @@ function buildCrossTable(total) {
     const onlineCnt = gids.filter(gid => onlineKeys.has(b.id + "_" + gid)).length;
     const rowTotal  = taimenCnt + onlineCnt;
     const breakdown = onlineCnt > 0
-      ? `<span style="font-size:9px;color:#6B8299;line-height:1.1">対面${taimenCnt}/💻${onlineCnt}</span>`
-      : `<span style="font-size:9px;line-height:1.1">&nbsp;</span>`;
+      ? `<span style="font-size:9px;color:#6B8299;white-space:nowrap">（対面${taimenCnt}/💻${onlineCnt}）</span>`
+      : "";
+    const branchShort = b.label.replace("支部", "");
 
     return `<tr>
-      <td style="height:40px;font-weight:700;white-space:nowrap;font-size:12px">${b.label}</td>
+      <td style="height:40px;font-weight:700;white-space:nowrap;font-size:12px">${branchShort}</td>
       ${allCells}
-      <td style="height:40px;padding:4px 10px;text-align:center;font-weight:700;color:#1D6FA4;background:#F0F7FF">
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%">
-          <span>${rowTotal}</span>${breakdown}
-        </div>
+      <td style="height:40px;padding:4px 6px;text-align:center;font-weight:700;color:#1D6FA4;background:#F0F7FF;white-space:nowrap">
+        ${rowTotal}${breakdown}
       </td>
     </tr>`;
   }).join("");
@@ -3197,6 +3428,146 @@ function applyAddrResult(result) {
   const branch = BRANCHES.find(b => b.id === result.branch);
   const group  = GROUPS.find(g => g.id === result.group);
   showToast(`🏠 ${branch?.label} ${group?.label} に設定しました`);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 座席案内
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 座席レイアウト: 3列×4行（最上行は本部バー全幅）
+// SEAT_LAYOUT[row][col] = { id:"支部ID", name:"表示名", seatCount:席数, headCount:支部長含む総人数 }
+// または null（空欄）
+const SEAT_LAYOUT = [
+  // 行1: 本部役員席（grid-column: 1/-1）
+  "honbu",
+  // 行2（row0）: 左=下小川3, 中=下小川2, 右=下小川1
+  [
+    {id:"shimo3",  name:"下小川3支部", total:6},  // 支部長1+班長5
+    {id:"shimo2",  name:"下小川2支部", total:5},  // 支部長1+班長4
+    {id:"shimo1",  name:"下小川1支部", total:5},  // 支部長1+班長4
+  ],
+  // 行3（row1）: 左=柳谷戸2, 中=せんげん2, 右=せんげん1
+  [
+    {id:"yanagi2", name:"柳谷戸2支部", total:4},  // 支部長1+班長3
+    {id:"sengn2",  name:"せんげん2支部",total:6}, // 支部長1+班長5
+    {id:"sengn1",  name:"せんげん1支部",total:6}, // 支部長1+班長5
+  ],
+  // 行4（row2）: 左=柳谷戸3, 中=かえで, 右=柳谷戸1
+  [
+    {id:"yanagi3", name:"柳谷戸3支部", total:6},  // 支部長1+班長5
+    {id:"kaede",   name:"かえで支部",  total:5},  // 支部長1+班長4
+    {id:"yanagi1", name:"柳谷戸1支部", total:5},  // 支部長1+班長4
+  ],
+  // 行5（row3）: 左=空, 中=蜂谷戸2, 右=蜂谷戸1
+  [
+    null,
+    {id:"hachi2",  name:"蜂谷戸2支部", total:5}, // 支部長1+班長4
+    {id:"hachi1",  name:"蜂谷戸1支部", total:7}, // 支部長1+班長6
+  ],
+];
+
+function showSeatOverlay(branchId, groupId) {
+  const branch = BRANCHES.find(b => b.id === branchId);
+  const group  = GROUPS.find(g => g.id === groupId);
+  document.getElementById("seatYourSeat").textContent =
+    `${branch?.label ?? ""} ${group?.label ?? ""}`;
+
+  const mapEl = document.getElementById("seatMap");
+  mapEl.innerHTML = "";
+
+  SEAT_LAYOUT.forEach(row => {
+    if (row === "honbu") {
+      const bar = document.createElement("div");
+      bar.className = "honbu-bar";
+      bar.style.gridColumn = "1 / -1";
+      bar.textContent = "本部役員席";
+      mapEl.appendChild(bar);
+      return;
+    }
+    row.forEach(cell => {
+      const block = document.createElement("div");
+      if (!cell) {
+        block.className = "seat-block empty";
+        mapEl.appendChild(block);
+        return;
+      }
+      const isHighlight = cell.id === branchId;
+      block.className = "seat-block" + (isHighlight ? " highlight" : "");
+
+      // 支部名
+      const nameEl = document.createElement("div");
+      nameEl.className = "seat-block-name";
+      nameEl.textContent = cell.name;
+      block.appendChild(nameEl);
+
+      // 席の丸（支部長1 + 班長n）
+      const circlesEl = document.createElement("div");
+      circlesEl.className = "seat-circles";
+      for (let i = 0; i < cell.total; i++) {
+        const c = document.createElement("div");
+        c.className = "seat-circle";
+        circlesEl.appendChild(c);
+      }
+      block.appendChild(circlesEl);
+
+      mapEl.appendChild(block);
+    });
+  });
+
+  document.getElementById("seatOverlay").classList.add("visible");
+}
+
+function closeSeatOverlay() {
+  document.getElementById("seatOverlay").classList.remove("visible");
+  showTab("input");
+  answers = {};
+  step    = 0;
+  buildStep();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 設定モーダル
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function updateToggleUI() {
+  const b = document.getElementById("toggle_showBanchoLine");
+  const j = document.getElementById("toggle_showJichikaiLine");
+  if (b) b.className = "toggle-track" + (settings.showBanchoLine   ? " on" : "");
+  if (j) j.className = "toggle-track" + (settings.showJichikaiLine ? " on" : "");
+}
+
+function toggleSetting(key) {
+  settings[key] = !settings[key];
+  saveSettings();
+  updateToggleUI();
+}
+
+function openSettings() {
+  updateToggleUI();
+  document.getElementById("settingsOverlay").classList.add("visible");
+  document.getElementById("navInput").classList.remove("active");
+  document.getElementById("navResult").classList.remove("active");
+  document.getElementById("navSettings").classList.add("active");
+}
+
+function closeSettings() {
+  document.getElementById("settingsOverlay").classList.remove("visible");
+  // 入力画面に戻る
+  showTab("input");
+}
+
+function showTab(name) {
+  ["screenInput","screenResult"].forEach(id =>
+    document.getElementById(id).classList.remove("visible"));
+  document.getElementById("navInput").classList.remove("active");
+  document.getElementById("navResult").classList.remove("active");
+  document.getElementById("navSettings").classList.remove("active");
+  if (name === "input") {
+    document.getElementById("screenInput").classList.add("visible");
+    document.getElementById("navInput").classList.add("active");
+  } else {
+    document.getElementById("screenResult").classList.add("visible");
+    document.getElementById("navResult").classList.add("active");
+    fetchData(true);
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
