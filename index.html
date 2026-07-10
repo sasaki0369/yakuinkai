@@ -2573,7 +2573,7 @@ const JICHIKAI_QR_DATA_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // settings と answers に基づいてアクティブなステップ名の配列を返す
 function getFlow() {
-  const f = ["branch", "group"];
+  const f = ["start", "branch", "group"];
   if (settings.showBanchoLine) {
     f.push("banchoLine");
     if (answers.line === "unregistered") f.push("banchoQR");
@@ -2597,7 +2597,7 @@ function currentStepName() { return getFlow()[step]; }
 // プログレスバーラベル
 function progressLabels() {
   const map = {
-    branch: "支部選択", group: "班選択",
+    start: "選択", branch: "支部選択", group: "班選択",
     banchoLine: "班長LINE", banchoQR: "班長QR",
     jichikaiLine: "自治会LINE", jichikaiQR: "自治会QR",
     confirm: "確認"
@@ -2624,18 +2624,53 @@ function buildStep() {
     </div>
   `).join("");
 
-  // 戻るボタン
+  // 戻るボタン（start画面では非表示）
   document.getElementById("backBtn").classList.toggle("visible", step > 0);
 
   // ステップ名でルーティング
   const name = flow[step] || "confirm";
-  if      (name === "branch")       buildBranchStep();
+  if      (name === "start")        buildStartStep();
+  else if (name === "branch")       buildBranchStep();
   else if (name === "group")        buildGroupStep();
   else if (name === "banchoLine")   buildLineStep();
   else if (name === "banchoQR")     buildBanchoQRStep();
   else if (name === "jichikaiLine") buildJichikaiLineStep();
   else if (name === "jichikaiQR")   buildJichikaiQRStep();
   else                              buildConfirmStep();
+}
+
+// ── 選択方法の選択（最初の画面）──
+function buildStartStep() {
+  setStepContent(`
+    <div class="q-card">
+      <div class="q-emoji">📋</div>
+      <div>
+        <div class="q-title">選択方法を選んでください</div>
+        <div class="q-sub">支部・班の選択方法を選んでください</div>
+      </div>
+    </div>
+    <div class="line-list">
+      <button class="opt-btn line-btn" onclick="selectStart('branch')">
+        <span class="line-icon">🏘️</span>
+        <span class="opt-label">支部・班を選択</span>
+      </button>
+      <button class="opt-btn line-btn" onclick="selectStart('address')">
+        <span class="line-icon">🏠</span>
+        <span class="opt-label">住所から選択</span>
+      </button>
+    </div>
+  `);
+}
+
+function selectStart(mode) {
+  if (mode === "address") {
+    openAddrModal();
+  } else {
+    setTimeout(() => {
+      step = getFlow().indexOf("branch");
+      buildStep();
+    }, 220);
+  }
 }
 
 // ── 支部選択 ──
@@ -3422,8 +3457,10 @@ function applyAddrResult(result) {
   answers.branch = result.branch;
   answers.group  = result.group;
   closeAddrModal();
-  // 支部・班が確定したのでLINE登録状況（step 2）へ
-  step = 2;
+  // 支部・班が確定したのでgroupの次のステップへ
+  const flow = getFlow();
+  const groupIdx = flow.indexOf("group");
+  step = groupIdx + 1 < flow.length ? groupIdx + 1 : flow.length - 1;
   buildStep();
   const branch = BRANCHES.find(b => b.id === result.branch);
   const group  = GROUPS.find(g => g.id === result.group);
