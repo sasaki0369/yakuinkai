@@ -891,8 +891,8 @@ td {
       </div>
       <div class="result-btns">
         <button class="result-btn" style="background:rgba(255,255,255,.2);color:white" onclick="fetchData(true)">🔄 更新</button>
-        <button class="result-btn" style="background:#E8A020;color:white" onclick="downloadCSV()">📥 CSV</button>
-        <button class="result-btn" style="background:#DC2626;color:white" onclick="openDialog('reset')">🗑️ リセット</button>
+        <button class="result-btn" style="background:#E8A020;color:white" onclick="requireAdmin(downloadCSV)">📥 CSV</button>
+        <button class="result-btn" style="background:#DC2626;color:white" onclick="requireAdmin(()=>openDialog('reset'))">🗑️ リセット</button>
       </div>
     </div>
     <div style="font-size:11px;color:rgba(255,255,255,.7);display:flex;align-items:center;gap:6px">
