@@ -3191,66 +3191,57 @@ async function dialogOK() {
     const key = `${savedBranch}_${savedGroup}`;
     const ts  = Date.now();
 
-    if (attType === "taimen") {
-      // 対面出席: responses に記録し、online/absent を削除
-      onlineKeys.delete(key); onlineMap.delete(key);
-      absentKeys.delete(key); absentMap.delete(key);
-      const rec = {
-        branch: savedBranch, branchLabel: branch?.label,
-        group:  savedGroup,  groupLabel:  group?.label,
-        line: answers.line, lineLabel, jichikaiLine: answers.jichikai_line ?? "skipped", jichikaiLineLabel,
-        attendanceType: "taimen", key, ts,
-      };
-      pendingResponseWrite++;
-      try {
-        await Promise.all([
-          pushResponse(rec),
-          pushHistory(rec),
-          deleteOnline(savedBranch, savedGroup),
-          deleteAbsent(savedBranch, savedGroup),
-        ]);
-      } finally { pendingResponseWrite--; }
-      await fetchData(false);
-      setSyncing(false);
-      answers = {}; step = 0;
-      showToast(`✅ 対面出席で登録しました（${responses.length}件目）`);
-      showSeatOverlay(savedBranch, savedGroup);
+    try {
+      if (attType === "taimen") {
+        const rec = {
+          branch: savedBranch, branchLabel: branch?.label,
+          group:  savedGroup,  groupLabel:  group?.label,
+          line: answers.line, lineLabel, jichikaiLine: answers.jichikai_line ?? "skipped", jichikaiLineLabel,
+          attendanceType: "taimen", key, ts,
+        };
+        // ① 楽観的更新: Firebase確認前にローカル状態を即時反映
+        responses = [...responses.filter(r => !(r.branch === savedBranch && r.group === savedGroup)), rec];
+        onlineKeys.delete(key); onlineMap.delete(key);
+        absentKeys.delete(key); absentMap.delete(key);
+        setSyncing(false);
+        answers = {}; step = 0;
+        showToast(`✅ 対面出席で登録しました`);
+        showSeatOverlay(savedBranch, savedGroup);
+        // ② Firebaseへ書き込み（バックグラウンド）
+        pendingResponseWrite++;
+        Promise.all([pushResponse(rec), pushHistory(rec), deleteOnline(savedBranch, savedGroup), deleteAbsent(savedBranch, savedGroup)])
+          .finally(() => { pendingResponseWrite--; });
 
-    } else if (attType === "online") {
-      // オンライン: online に記録し、responses/absent を削除
-      onlineKeys.add(key); onlineMap.set(key, ts);
-      absentKeys.delete(key); absentMap.delete(key);
-      pendingResponseWrite++;
-      try {
-        await Promise.all([
-          pushOnline(savedBranch, savedGroup, ts),
-          pushHistory({ branch: savedBranch, branchLabel: branch?.label, group: savedGroup, groupLabel: group?.label, attendanceType: "online", key, ts }),
-          deleteResponse(savedBranch, savedGroup),
-          deleteAbsent(savedBranch, savedGroup),
-        ]);
-      } finally { pendingResponseWrite--; }
-      await fetchData(false);
-      setSyncing(false);
-      answers = {}; step = 0; buildStep();
-      showToast(`💻 オンライン出席で登録しました`);
+      } else if (attType === "online") {
+        // ① 楽観的更新
+        responses = responses.filter(r => !(r.branch === savedBranch && r.group === savedGroup));
+        onlineKeys.add(key); onlineMap.set(key, ts);
+        absentKeys.delete(key); absentMap.delete(key);
+        setSyncing(false);
+        answers = {}; step = 0; buildStep();
+        showToast(`💻 オンライン出席で登録しました`);
+        // ② Firebaseへ書き込み（バックグラウンド）
+        pendingResponseWrite++;
+        Promise.all([pushOnline(savedBranch, savedGroup, ts), pushHistory({ branch: savedBranch, branchLabel: branch?.label, group: savedGroup, groupLabel: group?.label, attendanceType: "online", key, ts }), deleteResponse(savedBranch, savedGroup), deleteAbsent(savedBranch, savedGroup)])
+          .finally(() => { pendingResponseWrite--; });
 
-    } else {
-      // 欠席: absent に記録し、responses/online を削除
-      absentKeys.add(key); absentMap.set(key, ts);
-      onlineKeys.delete(key); onlineMap.delete(key);
-      pendingResponseWrite++;
-      try {
-        await Promise.all([
-          pushAbsent(savedBranch, savedGroup, ts),
-          pushHistory({ branch: savedBranch, branchLabel: branch?.label, group: savedGroup, groupLabel: group?.label, attendanceType: "absent", key, ts }),
-          deleteResponse(savedBranch, savedGroup),
-          deleteOnline(savedBranch, savedGroup),
-        ]);
-      } finally { pendingResponseWrite--; }
-      await fetchData(false);
+      } else {
+        // 欠席
+        // ① 楽観的更新
+        responses = responses.filter(r => !(r.branch === savedBranch && r.group === savedGroup));
+        absentKeys.add(key); absentMap.set(key, ts);
+        onlineKeys.delete(key); onlineMap.delete(key);
+        setSyncing(false);
+        answers = {}; step = 0; buildStep();
+        showToast(`✗ 欠席で登録しました`);
+        // ② Firebaseへ書き込み（バックグラウンド）
+        pendingResponseWrite++;
+        Promise.all([pushAbsent(savedBranch, savedGroup, ts), pushHistory({ branch: savedBranch, branchLabel: branch?.label, group: savedGroup, groupLabel: group?.label, attendanceType: "absent", key, ts }), deleteResponse(savedBranch, savedGroup), deleteOnline(savedBranch, savedGroup)])
+          .finally(() => { pendingResponseWrite--; });
+      }
+    } catch(err) {
       setSyncing(false);
-      answers = {}; step = 0; buildStep();
-      showToast(`✗ 欠席で登録しました`);
+      showToast("❌ 登録に失敗しました。再度お試しください");
     }
 
   } else if (type === "edit") {
@@ -3278,9 +3269,10 @@ const CHART_VIEWS = [
 ];
 
 function buildResultScreen() {
-  const total = responses.length;
+  const total    = responses.length;
+  const grandAll = total + onlineKeys.size + absentKeys.size;
   document.getElementById("totalCount").innerHTML =
-    total + '<span style="font-size:16px;margin-left:4px">件</span>';
+    grandAll + '<span style="font-size:16px;margin-left:4px">件</span>';
 
   document.getElementById("chartTabs").innerHTML = CHART_VIEWS.map(v => `
     <button class="chart-tab ${activeChart === v.id ? "active" : ""}"
@@ -3289,7 +3281,7 @@ function buildResultScreen() {
     </button>
   `).join("");
 
-  if (total === 0) {
+  if (grandAll === 0) {
     document.getElementById("resultContent").innerHTML =
       '<div class="empty"><div style="font-size:46px;margin-bottom:10px">📭</div><p style="font-size:16px">まだ登録がありません</p></div>';
     return;
