@@ -965,7 +965,10 @@ td {
     <div class="seat-sub">下記のハイライトされた席にお座りください</div>
     <div class="seat-your-seat" id="seatYourSeat">　</div>
     <div class="seat-map" id="seatMap"></div>
-    <button class="seat-confirm-btn" onclick="closeSeatOverlay()">確認しました ✓</button>
+    <div style="display:flex;gap:10px">
+      <button class="seat-confirm-btn" style="background:var(--gray-500);flex:1" onclick="seatExit()">終了する</button>
+      <button class="seat-confirm-btn" style="flex:1" onclick="closeSeatOverlay()">次の登録へ →</button>
+    </div>
   </div>
 </div>
 
@@ -3356,7 +3359,7 @@ function buildCrossTable(total) {
   const grandAbsent = absentKeys.size;
   const grandTotal  = grandTaimen + grandOnline;
 
-  // 未参加班一覧（対面もオンラインも未登録の班）
+  // 未登録班一覧（対面もオンラインも未登録の班）
   const missingRows = BRANCHES.map(b => {
     const gids    = BRANCH_GROUPS[b.id];
     const missing = gids.filter(gid => {
@@ -3375,9 +3378,9 @@ function buildCrossTable(total) {
 
   const missingSection = missingRows
     ? `<div class="chart-card" style="margin-top:12px">
-        <div class="chart-title" style="color:#DC2626">⚠️ 未参加班一覧</div>
+        <div class="chart-title" style="color:#DC2626">⚠️ 未登録班一覧</div>
         <table>
-          <thead><tr><th>支部</th><th>未参加の班</th></tr></thead>
+          <thead><tr><th>支部</th><th>未登録の班</th></tr></thead>
           <tbody>${missingRows}</tbody>
         </table>
        </div>`
@@ -3388,7 +3391,7 @@ function buildCrossTable(total) {
   document.getElementById("resultContent").innerHTML = `
     <div class="chart-card" style="overflow-x:auto">
       <div class="chart-title">📊 支部×班 クロス集計（対面: ${grandTaimen} / 💻オンライン: ${grandOnline} / 欠席: ${grandAbsent} / 出席合計: ${grandTotal}件）</div>
-      <div style="font-size:11px;color:var(--gray-500);margin-bottom:10px">未参加の班をタップ → 1回: 💻オンライン　2回: 欠　3回: 元に戻す</div>
+      <div style="font-size:11px;color:var(--gray-500);margin-bottom:10px">未登録の班をタップ → 1回: 💻オンライン　2回: 欠　3回: 元に戻す</div>
       <table style="font-size:12px;table-layout:fixed;width:100%">
         <thead><tr style="background:#F0F7FF">${tableHeader}</tr></thead>
         <tbody>
@@ -3787,6 +3790,22 @@ function closeSeatOverlay() {
   answers = {};
   step    = 0;
   buildStep();
+}
+
+function seatExit() {
+  // ウィンドウを閉じる（ホーム画面追加PWAや新しいタブで開いた場合に有効）
+  window.close();
+  // window.close() が効かないブラウザ向けのフォールバック
+  setTimeout(() => {
+    document.getElementById("seatOverlay").classList.remove("visible");
+    document.body.innerHTML = `
+      <div style="height:100dvh;display:flex;flex-direction:column;align-items:center;
+                  justify-content:center;gap:20px;background:#1D6FA4;color:white;text-align:center;padding:32px">
+        <div style="font-size:64px">✅</div>
+        <div style="font-size:24px;font-weight:900">ご参加ありがとうございました</div>
+        <div style="font-size:14px;opacity:.8">このタブを閉じてください</div>
+      </div>`;
+  }, 300);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
