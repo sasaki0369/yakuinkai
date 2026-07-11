@@ -2653,6 +2653,12 @@ async function deleteAbsent(bid, gid) {
   await fetch(`${DB_URL}/${ABSENT_KEY}/${bid}_${gid}.json`, {method: "DELETE"});
 }
 
+// 対面参加レコードをFirebaseから削除
+async function deleteResponse(bid, gid) {
+  const key = bid + "_" + gid;
+  await fetch(`${DB_URL}/${STORAGE_KEY}/${key}.json`, {method: "DELETE"});
+}
+
 async function clearData() {
   absentKeys.clear(); absentMap.clear();
   await Promise.all([
@@ -3160,13 +3166,19 @@ async function dialogOK() {
     const ts  = Date.now();
 
     if (attType === "taimen") {
-      // 対面出席: responsesに記録
-      await pushResponse({
-        branch: savedBranch, branchLabel: branch?.label,
-        group:  savedGroup,  groupLabel:  group?.label,
-        line: answers.line, lineLabel, jichikaiLine: answers.jichikai_line ?? "skipped", jichikaiLineLabel,
-        key, ts,
-      });
+      // 対面出席: responses に記録し、online/absent を削除
+      onlineKeys.delete(key); onlineMap.delete(key);
+      absentKeys.delete(key); absentMap.delete(key);
+      await Promise.all([
+        pushResponse({
+          branch: savedBranch, branchLabel: branch?.label,
+          group:  savedGroup,  groupLabel:  group?.label,
+          line: answers.line, lineLabel, jichikaiLine: answers.jichikai_line ?? "skipped", jichikaiLineLabel,
+          key, ts,
+        }),
+        deleteOnline(savedBranch, savedGroup),
+        deleteAbsent(savedBranch, savedGroup),
+      ]);
       await fetchData(false);
       setSyncing(false);
       answers = {}; step = 0;
@@ -3174,18 +3186,28 @@ async function dialogOK() {
       showSeatOverlay(savedBranch, savedGroup);
 
     } else if (attType === "online") {
-      // オンライン: onlineに記録
+      // オンライン: online に記録し、responses/absent を削除
       onlineKeys.add(key); onlineMap.set(key, ts);
-      await pushOnline(savedBranch, savedGroup, ts);
+      absentKeys.delete(key); absentMap.delete(key);
+      await Promise.all([
+        pushOnline(savedBranch, savedGroup, ts),
+        deleteResponse(savedBranch, savedGroup),
+        deleteAbsent(savedBranch, savedGroup),
+      ]);
       await fetchData(false);
       setSyncing(false);
       answers = {}; step = 0; buildStep();
       showToast(`💻 オンライン出席で登録しました`);
 
     } else {
-      // 欠席: absentに記録
+      // 欠席: absent に記録し、responses/online を削除
       absentKeys.add(key); absentMap.set(key, ts);
-      await pushAbsent(savedBranch, savedGroup, ts);
+      onlineKeys.delete(key); onlineMap.delete(key);
+      await Promise.all([
+        pushAbsent(savedBranch, savedGroup, ts),
+        deleteResponse(savedBranch, savedGroup),
+        deleteOnline(savedBranch, savedGroup),
+      ]);
       await fetchData(false);
       setSyncing(false);
       answers = {}; step = 0; buildStep();
@@ -3293,7 +3315,7 @@ function buildCrossTable(total) {
         // 班が存在しない → 濃いグレー
         return `<td style="height:40px;background:#D0DDE8"></td>`;
       }
-      const cnt    = responses.filter(r => r.branch === b.id && r.group === g.id).length;
+      const cnt    = responses.some(r => r.branch === b.id && r.group === g.id) ? 1 : 0;
       const key    = b.id + "_" + g.id;
       const online = onlineKeys.has(key);
       const absent = absentKeys.has(key);
@@ -3321,7 +3343,7 @@ function buildCrossTable(total) {
       }
     }).join("");
 
-    const taimenCnt = responses.filter(r => r.branch === b.id).length;
+    const taimenCnt = gids.filter(gid => responses.some(r => r.branch === b.id && r.group === gid)).length;
     const onlineCnt = gids.filter(gid => onlineKeys.has(b.id + "_" + gid)).length;
     const absentCnt = gids.filter(gid => absentKeys.has(b.id + "_" + gid)).length;
     const attendCnt = taimenCnt + onlineCnt;
@@ -3341,7 +3363,7 @@ function buildCrossTable(total) {
   }).join("");
 
   const colTotals = GROUPS.map(g => {
-    const taimenCnt = responses.filter(r => r.group === g.id).length;
+    const taimenCnt = BRANCHES.filter(b => responses.some(r => r.branch === b.id && r.group === g.id)).length;
     const onlineCnt = BRANCHES.filter(b => onlineKeys.has(b.id + "_" + g.id)).length;
     const absentCnt = BRANCHES.filter(b => absentKeys.has(b.id + "_" + g.id)).length;
     const attend = taimenCnt + onlineCnt;
@@ -3354,7 +3376,8 @@ function buildCrossTable(total) {
     </td>`;
   }).join("");
 
-  const grandTaimen = responses.length;
+  // ユニークな支部_班の組み合わせ数（最大で各班1カウント）
+  const grandTaimen = new Set(responses.map(r => r.branch + "_" + r.group)).size;
   const grandOnline = onlineKeys.size;
   const grandAbsent = absentKeys.size;
   const grandTotal  = grandTaimen + grandOnline;
