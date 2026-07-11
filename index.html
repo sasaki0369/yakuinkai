@@ -2605,8 +2605,10 @@ async function fetchData(showLoading = false) {
 }
 
 async function pushResponse(record) {
-  await fetch(`${DB_URL}/${STORAGE_KEY}.json`, {
-    method: "POST",
+  // 支部_班をキーにPUTすることで、同一支部班の登録は最新で上書き
+  const key = record.key || `${record.branch}_${record.group}`;
+  await fetch(`${DB_URL}/${STORAGE_KEY}/${key}.json`, {
+    method: "PUT",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify(record),
   });
