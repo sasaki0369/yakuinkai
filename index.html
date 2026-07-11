@@ -3169,9 +3169,9 @@ async function toggleCellState(bid, gid) {
 
 
 function buildCrossTable(total) {
-  const tableHeader = `<th>支部 \ 班</th>` +
-    GROUPS.map(g => `<th style="text-align:center">${g.label}</th>`).join("") +
-    `<th style="text-align:center;color:#1D6FA4">合計</th>`;
+  const tableHeader = `<th style="width:19%">支部</th>` +
+    GROUPS.map(g => `<th style="width:10%;text-align:center">${g.label}</th>`).join("") +
+    `<th style="width:21%;text-align:center;font-size:10px"><span style="color:#1D6FA4">出席</span>/<span style="color:#DC2626">欠</span></th>`;
 
   const tableRows = BRANCHES.map(b => {
     const gids = BRANCH_GROUPS[b.id];
@@ -3210,21 +3210,18 @@ function buildCrossTable(total) {
     const taimenCnt = responses.filter(r => r.branch === b.id).length;
     const onlineCnt = gids.filter(gid => onlineKeys.has(b.id + "_" + gid)).length;
     const absentCnt = gids.filter(gid => absentKeys.has(b.id + "_" + gid)).length;
-    const rowTotal  = taimenCnt + onlineCnt; // 出席合計（欠席は含まない）
-    const parts = [];
-    if (taimenCnt > 0) parts.push(`対面${taimenCnt}`);
-    if (onlineCnt > 0) parts.push(`💻${onlineCnt}`);
-    if (absentCnt > 0) parts.push(`欠${absentCnt}`);
-    const breakdown = parts.length > 0
-      ? `<span style="font-size:9px;color:#6B8299;white-space:nowrap">（${parts.join("/")}）</span>`
-      : "";
+    const attendCnt = taimenCnt + onlineCnt;
+    const onlineStr = onlineCnt > 0 ? `💻${onlineCnt}` : "";
     const branchShort = b.label.replace("支部", "");
 
     return `<tr>
-      <td style="height:40px;font-weight:700;white-space:nowrap;font-size:12px">${branchShort}</td>
+      <td style="height:40px;font-weight:700;overflow:hidden;font-size:11px">${branchShort}</td>
       ${allCells}
-      <td style="height:40px;padding:4px 6px;text-align:center;font-weight:700;color:#1D6FA4;background:#F0F7FF;white-space:nowrap">
-        ${rowTotal}${breakdown}
+      <td style="height:40px;padding:2px 4px;text-align:center;background:#F0F7FF;vertical-align:middle">
+        <div style="font-size:12px;font-weight:700;line-height:1.3;display:flex;align-items:center;justify-content:center;gap:1px">
+          <span style="color:#1D6FA4">${attendCnt}</span><span style="color:#6B8299">/</span><span style="color:#DC2626">${absentCnt}</span>
+        </div>
+        <div style="font-size:9px;line-height:1.2;color:#2563EB;visibility:${onlineCnt > 0 ? "visible" : "hidden"}">${onlineStr || "💻0"}</div>
       </td>
     </tr>`;
   }).join("");
@@ -3233,9 +3230,14 @@ function buildCrossTable(total) {
     const taimenCnt = responses.filter(r => r.group === g.id).length;
     const onlineCnt = BRANCHES.filter(b => onlineKeys.has(b.id + "_" + g.id)).length;
     const absentCnt = BRANCHES.filter(b => absentKeys.has(b.id + "_" + g.id)).length;
-    const cnt = taimenCnt + onlineCnt;
-    const sub = absentCnt > 0 ? `<br><span style="color:#DC2626;font-size:9px">欠${absentCnt}</span>` : "";
-    return `<td style="text-align:center;font-weight:700;color:#1D6FA4;background:#F0F7FF">${cnt||""}${sub}</td>`;
+    const attend = taimenCnt + onlineCnt;
+    const onlineStr = onlineCnt > 0 ? `💻${onlineCnt}` : "";
+    return `<td style="text-align:center;background:#F0F7FF;padding:2px;vertical-align:middle">
+      <div style="font-size:12px;font-weight:700;line-height:1.3;display:flex;align-items:center;justify-content:center;gap:1px">
+        <span style="color:#1D6FA4">${attend}</span><span style="color:#6B8299">/</span><span style="color:#DC2626">${absentCnt}</span>
+      </div>
+      <div style="font-size:9px;line-height:1.2;color:#2563EB;visibility:${onlineCnt > 0 ? "visible" : "hidden"}">${onlineStr || "💻0"}</div>
+    </td>`;
   }).join("");
 
   const grandTaimen = responses.length;
@@ -3276,14 +3278,19 @@ function buildCrossTable(total) {
     <div class="chart-card" style="overflow-x:auto">
       <div class="chart-title">📊 支部×班 クロス集計（対面: ${grandTaimen} / 💻オンライン: ${grandOnline} / 欠席: ${grandAbsent} / 出席合計: ${grandTotal}件）</div>
       <div style="font-size:11px;color:var(--gray-500);margin-bottom:10px">未参加の班をタップ → 1回: 💻オンライン　2回: 欠　3回: 元に戻す</div>
-      <table style="font-size:12px">
+      <table style="font-size:12px;table-layout:fixed;width:100%">
         <thead><tr style="background:#F0F7FF">${tableHeader}</tr></thead>
         <tbody>
           ${tableRows}
           <tr style="background:#F0F7FF">
-            <td style="font-weight:700">合計</td>
+            <td style="font-weight:700;font-size:12px">合計</td>
             ${colTotals}
-            <td style="text-align:center;font-weight:900;color:#1D6FA4">${grandTotal}</td>
+            <td style="text-align:center;background:#F0F7FF;padding:2px 4px;vertical-align:middle">
+              <div style="font-size:12px;font-weight:900;line-height:1.3;display:flex;align-items:center;justify-content:center;gap:1px">
+                <span style="color:#1D6FA4">${grandTotal}</span><span style="color:#6B8299">/</span><span style="color:#DC2626">${grandAbsent}</span>
+              </div>
+              <div style="font-size:9px;line-height:1.2;color:#2563EB;visibility:${grandOnline > 0 ? "visible" : "hidden"}">${grandOnline > 0 ? "💻"+grandOnline : "💻0"}</div>
+            </td>
           </tr>
         </tbody>
       </table>
