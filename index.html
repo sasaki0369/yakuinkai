@@ -2911,7 +2911,6 @@ function buildLineStep() {
       ${LINE_STATUS.map(l => `
         <button class="opt-btn line-btn ${answers.line === l.id ? "selected" : ""}"
                 onclick="selectLine('${l.id}')">
-          <span class="line-icon">${l.icon}</span>
           <span class="opt-label">${l.label.replace("\n","<br>")}</span>
         </button>
       `).join("")}
@@ -2977,7 +2976,6 @@ function buildJichikaiLineStep() {
       ${LINE_STATUS.filter(l => l.id !== "no_line").map(l => `
         <button class="opt-btn line-btn ${answers.jichikai_line === l.id ? "selected" : ""}"
                 onclick="selectJichikaiLine('${l.id}')">
-          <span class="line-icon">${l.icon}</span>
           <span class="opt-label">${l.label.replace("\n","<br>")}</span>
         </button>
       `).join("")}
