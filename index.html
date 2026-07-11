@@ -2519,6 +2519,7 @@ let pendingOnlineWrite = 0; // 書き込み中カウンタ
 let absentKeys  = new Set(); // 欠席
 let absentMap   = new Map(); // key → タイムスタンプ
 let pendingAbsentWrite = 0;
+let pendingResponseWrite = 0; // 書き込み中は responses を上書きしない
 const STORAGE_KEY = "yakuinkai_v1";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2559,8 +2560,12 @@ async function fetchData(showLoading = false) {
     const data4 = await res4.json();
     const data5 = await res5.json();
 
-    // data1 が null の場合は既存 responses を保持（書き込みとの競合対策）
-    if (data1 !== null && data1 !== undefined) {
+    // data1 が null のときは書き込み中かどうかで分岐
+    // 書き込み中でなければ Firebase が空 → responses をクリア
+    // 書き込み中ならタイミング競合の可能性があるため保持
+    if (pendingResponseWrite === 0) {
+      responses = data1 ? Object.values(data1) : [];
+    } else if (data1) {
       responses = Object.values(data1);
     }
     // 履歴: 常に最新で上書き
@@ -3196,12 +3201,15 @@ async function dialogOK() {
         line: answers.line, lineLabel, jichikaiLine: answers.jichikai_line ?? "skipped", jichikaiLineLabel,
         attendanceType: "taimen", key, ts,
       };
-      await Promise.all([
-        pushResponse(rec),
-        pushHistory(rec),
-        deleteOnline(savedBranch, savedGroup),
-        deleteAbsent(savedBranch, savedGroup),
-      ]);
+      pendingResponseWrite++;
+      try {
+        await Promise.all([
+          pushResponse(rec),
+          pushHistory(rec),
+          deleteOnline(savedBranch, savedGroup),
+          deleteAbsent(savedBranch, savedGroup),
+        ]);
+      } finally { pendingResponseWrite--; }
       await fetchData(false);
       setSyncing(false);
       answers = {}; step = 0;
@@ -3212,12 +3220,15 @@ async function dialogOK() {
       // オンライン: online に記録し、responses/absent を削除
       onlineKeys.add(key); onlineMap.set(key, ts);
       absentKeys.delete(key); absentMap.delete(key);
-      await Promise.all([
-        pushOnline(savedBranch, savedGroup, ts),
-        pushHistory({ branch: savedBranch, branchLabel: branch?.label, group: savedGroup, groupLabel: group?.label, attendanceType: "online", key, ts }),
-        deleteResponse(savedBranch, savedGroup),
-        deleteAbsent(savedBranch, savedGroup),
-      ]);
+      pendingResponseWrite++;
+      try {
+        await Promise.all([
+          pushOnline(savedBranch, savedGroup, ts),
+          pushHistory({ branch: savedBranch, branchLabel: branch?.label, group: savedGroup, groupLabel: group?.label, attendanceType: "online", key, ts }),
+          deleteResponse(savedBranch, savedGroup),
+          deleteAbsent(savedBranch, savedGroup),
+        ]);
+      } finally { pendingResponseWrite--; }
       await fetchData(false);
       setSyncing(false);
       answers = {}; step = 0; buildStep();
@@ -3227,12 +3238,15 @@ async function dialogOK() {
       // 欠席: absent に記録し、responses/online を削除
       absentKeys.add(key); absentMap.set(key, ts);
       onlineKeys.delete(key); onlineMap.delete(key);
-      await Promise.all([
-        pushAbsent(savedBranch, savedGroup, ts),
-        pushHistory({ branch: savedBranch, branchLabel: branch?.label, group: savedGroup, groupLabel: group?.label, attendanceType: "absent", key, ts }),
-        deleteResponse(savedBranch, savedGroup),
-        deleteOnline(savedBranch, savedGroup),
-      ]);
+      pendingResponseWrite++;
+      try {
+        await Promise.all([
+          pushAbsent(savedBranch, savedGroup, ts),
+          pushHistory({ branch: savedBranch, branchLabel: branch?.label, group: savedGroup, groupLabel: group?.label, attendanceType: "absent", key, ts }),
+          deleteResponse(savedBranch, savedGroup),
+          deleteOnline(savedBranch, savedGroup),
+        ]);
+      } finally { pendingResponseWrite--; }
       await fetchData(false);
       setSyncing(false);
       answers = {}; step = 0; buildStep();
