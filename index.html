@@ -2457,13 +2457,17 @@ let currentDialog = null;
 let pollerTimer = null;
 let onlineKeys  = new Set(); // "branchId_groupId" 形式でオンライン参加を記録
 let onlineMap   = new Map(); // key → 登録タイムスタンプ（最新）
-let pendingOnlineWrite = 0; // 書き込み中カウンタ（>0の間はポーリングでonlineKeysを上書きしない）
+let pendingOnlineWrite = 0; // 書き込み中カウンタ
+let absentKeys  = new Set(); // 欠席
+let absentMap   = new Map(); // key → タイムスタンプ
+let pendingAbsentWrite = 0;
 const STORAGE_KEY = "yakuinkai_v1";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Firebase
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const ONLINE_KEY    = STORAGE_KEY + "_online";    // オンライン参加データの Firebase パス
+const ABSENT_KEY    = STORAGE_KEY + "_absent";    // 欠席データの Firebase パス
 const SETTINGS_KEY  = STORAGE_KEY + "_settings";  // 設定データの Firebase パス
 
 // 設定をFirebaseへ書き込み
@@ -2483,14 +2487,16 @@ async function fetchData(showLoading = false) {
   if (!DB_URL) return;
   if (showLoading) setSyncing(true);
   try {
-    const [res1, res2, res3] = await Promise.all([
+    const [res1, res2, res3, res4] = await Promise.all([
       fetch(`${DB_URL}/${STORAGE_KEY}.json`),
       fetch(`${DB_URL}/${ONLINE_KEY}.json`),
       fetch(`${DB_URL}/${SETTINGS_KEY}.json`),
+      fetch(`${DB_URL}/${ABSENT_KEY}.json`),
     ]);
     const data1 = await res1.json();
     const data2 = await res2.json();
     const data3 = await res3.json();
+    const data4 = await res4.json();
 
     responses = data1 ? Object.values(data1) : [];
 
@@ -2501,6 +2507,18 @@ async function fetchData(showLoading = false) {
         Object.entries(data2).forEach(([key, rec]) => {
           onlineKeys.add(key);
           onlineMap.set(key, rec.ts);
+        });
+      }
+    }
+
+    // 欠席データを Firebase で同期（書き込み中はスキップ）
+    if (pendingAbsentWrite === 0) {
+      absentKeys.clear();
+      absentMap.clear();
+      if (data4) {
+        Object.entries(data4).forEach(([key, rec]) => {
+          absentKeys.add(key);
+          absentMap.set(key, rec.ts);
         });
       }
     }
@@ -2559,10 +2577,29 @@ async function deleteOnline(bid, gid) {
   await fetch(`${DB_URL}/${ONLINE_KEY}/${key}.json`, {method: "DELETE"});
 }
 
+// 欠席をFirebaseに書き込み
+async function pushAbsent(bid, gid, ts) {
+  const key    = bid + "_" + gid;
+  const branch = BRANCHES.find(b => b.id === bid);
+  const group  = GROUPS.find(g => g.id === gid);
+  await fetch(`${DB_URL}/${ABSENT_KEY}/${key}.json`, {
+    method: "PUT",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ branch: bid, branchLabel: branch?.label, group: gid, groupLabel: group?.label, ts }),
+  });
+}
+
+// 欠席をFirebaseから削除
+async function deleteAbsent(bid, gid) {
+  await fetch(`${DB_URL}/${ABSENT_KEY}/${bid}_${gid}.json`, {method: "DELETE"});
+}
+
 async function clearData() {
+  absentKeys.clear(); absentMap.clear();
   await Promise.all([
     fetch(`${DB_URL}/${STORAGE_KEY}.json`, {method: "DELETE"}),
     fetch(`${DB_URL}/${ONLINE_KEY}.json`,  {method: "DELETE"}),
+    fetch(`${DB_URL}/${ABSENT_KEY}.json`,  {method: "DELETE"}),
   ]);
 }
 
@@ -3094,15 +3131,33 @@ function buildResultScreen() {
   else                                 buildJichikaiLineChart(total);
 }
 
-async function toggleOnline(bid, gid) {
+async function toggleCellState(bid, gid) {
   const key = bid + "_" + gid;
-  if (onlineKeys.has(key)) {
+
+  if (absentKeys.has(key)) {
+    // 欠 → なし（元に戻す）
+    absentKeys.delete(key);
+    absentMap.delete(key);
+    buildCrossTable(responses.length);
+    pendingAbsentWrite++;
+    try { await deleteAbsent(bid, gid); } finally { pendingAbsentWrite--; }
+
+  } else if (onlineKeys.has(key)) {
+    // 💻オンライン → 欠
     onlineKeys.delete(key);
     onlineMap.delete(key);
+    const ts = Date.now();
+    absentKeys.add(key);
+    absentMap.set(key, ts);
     buildCrossTable(responses.length);
     pendingOnlineWrite++;
-    try { await deleteOnline(bid, gid); } finally { pendingOnlineWrite--; }
+    pendingAbsentWrite++;
+    try {
+      await Promise.all([deleteOnline(bid, gid), pushAbsent(bid, gid, ts)]);
+    } finally { pendingOnlineWrite--; pendingAbsentWrite--; }
+
   } else {
+    // なし → 💻オンライン
     const ts = Date.now();
     onlineKeys.add(key);
     onlineMap.set(key, ts);
@@ -3111,6 +3166,7 @@ async function toggleOnline(bid, gid) {
     try { await pushOnline(bid, gid, ts); } finally { pendingOnlineWrite--; }
   }
 }
+
 
 function buildCrossTable(total) {
   const tableHeader = `<th>支部 \ 班</th>` +
@@ -3127,15 +3183,22 @@ function buildCrossTable(total) {
       const cnt    = responses.filter(r => r.branch === b.id && r.group === g.id).length;
       const key    = b.id + "_" + g.id;
       const online = onlineKeys.has(key);
+      const absent = absentKeys.has(key);
 
-      if (cnt === 0 && !online) {
+      if (absent) {
+        // 欠席 → タップで元に戻す
+        return `<td style="height:40px;padding:0;text-align:center;cursor:pointer;background:#FEF2F2"
+                    onclick="toggleCellState('${b.id}','${g.id}')" title="タップで取消">
+                  <div style="display:flex;align-items:center;justify-content:center;height:40px;font-size:15px;font-weight:900;color:#DC2626">欠</div>
+                </td>`;
+      } else if (cnt === 0 && !online) {
         // 未参加 → タップでオンライン登録
         return `<td style="height:40px;text-align:center;cursor:pointer;color:#CBD5E1;font-size:10px"
-                    onclick="toggleOnline('${b.id}','${g.id}')" title="タップでオンライン参加に変更">－</td>`;
+                    onclick="toggleCellState('${b.id}','${g.id}')" title="タップで💻オンライン→欠→元に戻る">－</td>`;
       } else if (online) {
-        // オンライン参加 → タップで取消
+        // オンライン参加 → タップで欠席へ
         return `<td style="height:40px;padding:0;text-align:center;cursor:pointer;background:#EFF6FF"
-                    onclick="toggleOnline('${b.id}','${g.id}')" title="タップで取消">
+                    onclick="toggleCellState('${b.id}','${g.id}')" title="タップで欠席に変更">
                   <div style="display:flex;align-items:center;justify-content:center;height:40px;font-size:16px">💻</div>
                 </td>`;
       } else {
@@ -3146,9 +3209,14 @@ function buildCrossTable(total) {
 
     const taimenCnt = responses.filter(r => r.branch === b.id).length;
     const onlineCnt = gids.filter(gid => onlineKeys.has(b.id + "_" + gid)).length;
-    const rowTotal  = taimenCnt + onlineCnt;
-    const breakdown = onlineCnt > 0
-      ? `<span style="font-size:9px;color:#6B8299;white-space:nowrap">（対面${taimenCnt}/💻${onlineCnt}）</span>`
+    const absentCnt = gids.filter(gid => absentKeys.has(b.id + "_" + gid)).length;
+    const rowTotal  = taimenCnt + onlineCnt; // 出席合計（欠席は含まない）
+    const parts = [];
+    if (taimenCnt > 0) parts.push(`対面${taimenCnt}`);
+    if (onlineCnt > 0) parts.push(`💻${onlineCnt}`);
+    if (absentCnt > 0) parts.push(`欠${absentCnt}`);
+    const breakdown = parts.length > 0
+      ? `<span style="font-size:9px;color:#6B8299;white-space:nowrap">（${parts.join("/")}）</span>`
       : "";
     const branchShort = b.label.replace("支部", "");
 
@@ -3164,12 +3232,15 @@ function buildCrossTable(total) {
   const colTotals = GROUPS.map(g => {
     const taimenCnt = responses.filter(r => r.group === g.id).length;
     const onlineCnt = BRANCHES.filter(b => onlineKeys.has(b.id + "_" + g.id)).length;
+    const absentCnt = BRANCHES.filter(b => absentKeys.has(b.id + "_" + g.id)).length;
     const cnt = taimenCnt + onlineCnt;
-    return `<td style="text-align:center;font-weight:700;color:#1D6FA4;background:#F0F7FF">${cnt||""}</td>`;
+    const sub = absentCnt > 0 ? `<br><span style="color:#DC2626;font-size:9px">欠${absentCnt}</span>` : "";
+    return `<td style="text-align:center;font-weight:700;color:#1D6FA4;background:#F0F7FF">${cnt||""}${sub}</td>`;
   }).join("");
 
   const grandTaimen = responses.length;
   const grandOnline = onlineKeys.size;
+  const grandAbsent = absentKeys.size;
   const grandTotal  = grandTaimen + grandOnline;
 
   // 未参加班一覧（対面もオンラインも未登録の班）
@@ -3178,7 +3249,8 @@ function buildCrossTable(total) {
     const missing = gids.filter(gid => {
       const hasResponse = responses.some(r => r.branch === b.id && r.group === gid);
       const isOnline    = onlineKeys.has(b.id + "_" + gid);
-      return !hasResponse && !isOnline;
+      const isAbsent    = absentKeys.has(b.id + "_" + gid);
+      return !hasResponse && !isOnline && !isAbsent;
     });
     if (!missing.length) return "";
     const labels = missing.map(gid => GROUPS.find(g => g.id === gid).label).join("・");
@@ -3202,8 +3274,8 @@ function buildCrossTable(total) {
 
   document.getElementById("resultContent").innerHTML = `
     <div class="chart-card" style="overflow-x:auto">
-      <div class="chart-title">📊 支部×班 クロス集計（対面: ${grandTaimen}件 / 💻オンライン: ${grandOnline}件 / 合計: ${grandTotal}件）</div>
-      <div style="font-size:11px;color:var(--gray-500);margin-bottom:10px">未参加の班をタップすると💻オンラインに変更できます</div>
+      <div class="chart-title">📊 支部×班 クロス集計（対面: ${grandTaimen} / 💻オンライン: ${grandOnline} / 欠席: ${grandAbsent} / 出席合計: ${grandTotal}件）</div>
+      <div style="font-size:11px;color:var(--gray-500);margin-bottom:10px">未参加の班をタップ → 1回: 💻オンライン　2回: 欠　3回: 元に戻す</div>
       <table style="font-size:12px">
         <thead><tr style="background:#F0F7FF">${tableHeader}</tr></thead>
         <tbody>
@@ -3323,25 +3395,26 @@ function downloadCSV() {
     r.ts ? new Date(r.ts).toLocaleString("ja-JP") : "",
   ].join(","));
 
-  // オンライン参加行（onlineMapに残っているもののみ＝現在ONのもの）
-  let onlineNum = responses.length + 1;
+  // オンライン参加行
+  let extraNum = responses.length + 1;
   const onlineRows = [];
   onlineMap.forEach((ts, key) => {
     const [bid, gid] = key.split("_");
     const branch = BRANCHES.find(b => b.id === bid);
     const group  = GROUPS.find(g => g.id === gid);
-    onlineRows.push([
-      onlineNum++,
-      "💻オンライン",
-      branch?.label ?? bid,
-      group?.label  ?? gid,
-      "－",
-      "－",
-      new Date(ts).toLocaleString("ja-JP"),
-    ].join(","));
+    onlineRows.push([extraNum++, "💻オンライン", branch?.label ?? bid, group?.label ?? gid, "－", "－", new Date(ts).toLocaleString("ja-JP")].join(","));
   });
 
-  const csv  = "\uFEFF" + [header, ...taimenRows, ...onlineRows].join("\n");
+  // 欠席行
+  const absentRows = [];
+  absentMap.forEach((ts, key) => {
+    const [bid, gid] = key.split("_");
+    const branch = BRANCHES.find(b => b.id === bid);
+    const group  = GROUPS.find(g => g.id === gid);
+    absentRows.push([extraNum++, "欠席", branch?.label ?? bid, group?.label ?? gid, "－", "－", new Date(ts).toLocaleString("ja-JP")].join(","));
+  });
+
+  const csv  = "\uFEFF" + [header, ...taimenRows, ...onlineRows, ...absentRows].join("\n");
   const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
@@ -3351,7 +3424,7 @@ function downloadCSV() {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  showToast(`📥 CSVをダウンロードしました（対面${responses.length}件／💻${onlineMap.size}件）`);
+  showToast(`📥 CSV（対面${responses.length}件／💻${onlineMap.size}件／欠${absentMap.size}件）`);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
