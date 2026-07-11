@@ -654,6 +654,44 @@ td {
   line-height: 1.8;
 }
 
+/* ─── 参加形式選択ボタン ─── */
+.att-grid { display: flex; gap: 8px; margin-bottom: 12px; flex-shrink: 0; }
+.att-btn {
+  flex: 1;
+  padding: 12px 4px;
+  border-radius: var(--radius-md);
+  border: 2.5px solid var(--gray-100);
+  background: var(--white);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: border-color .15s, background .15s, color .15s;
+  color: var(--gray-500);
+}
+.att-btn .att-icon { font-size: 22px; }
+.att-btn.att-taimen  { border-color: var(--green); background: #ECFDF5; color: var(--green); }
+.att-btn.att-online  { border-color: var(--blue);  background: var(--blue-light); color: var(--blue); }
+.att-btn.att-absent  { border-color: #DC2626; background: #FEF2F2; color: #DC2626; }
+
+/* ─── 管理者認証ダイアログ ─── */
+.admin-input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid var(--gray-100);
+  border-radius: var(--radius-sm);
+  font-size: 24px;
+  text-align: center;
+  letter-spacing: 8px;
+  font-family: inherit;
+  margin-bottom: 6px;
+}
+.admin-input:focus { outline: none; border-color: var(--blue); }
+
 /* ─── タップフィードバック ─── */
 @keyframes tapFlash {
   0%   { box-shadow: 0 0 0 0 rgba(29,111,164,0); background-color: inherit; }
@@ -928,6 +966,22 @@ td {
     <div class="seat-your-seat" id="seatYourSeat">　</div>
     <div class="seat-map" id="seatMap"></div>
     <button class="seat-confirm-btn" onclick="closeSeatOverlay()">確認しました ✓</button>
+  </div>
+</div>
+
+<!-- 管理者認証ダイアログ -->
+<div class="overlay" id="adminDialog">
+  <div class="dialog">
+    <div style="font-size:36px;margin-bottom:8px">🔒</div>
+    <div style="font-size:18px;font-weight:900;color:var(--text);margin-bottom:6px">管理者認証</div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">パスワードを入力してください</div>
+    <input type="password" id="adminPasswordInput" class="admin-input" maxlength="8" inputmode="numeric"
+           placeholder="····" onkeydown="if(event.key==='Enter')adminDialogOK()">
+    <div id="adminPasswordError" style="color:#DC2626;font-size:12px;min-height:18px;margin-bottom:10px;text-align:center"></div>
+    <div style="display:flex;gap:10px">
+      <button class="dialog-btn" style="background:#6B8299;color:white;flex:1" onclick="adminDialogCancel()">キャンセル</button>
+      <button class="dialog-btn" style="background:#1D6FA4;color:white;flex:1" onclick="adminDialogOK()">OK</button>
+    </div>
   </div>
 </div>
 
@@ -2883,6 +2937,14 @@ function buildBanchoQRStep() {
         班長LINEグループへご登録ください。
       </div>
       <img src="${QR_DATA_URI}" class="qr-img" alt="班長LINE QRコード">
+      <a href="https://line.me/R/ti/g/JENYuEwpRc" target="_blank" style="
+        display:flex;align-items:center;justify-content:center;gap:8px;
+        width:100%;padding:14px;border-radius:var(--radius-md);
+        background:#06C755;color:white;font-size:16px;font-weight:700;
+        text-decoration:none;margin-bottom:10px;
+        box-shadow:0 4px 12px rgba(6,199,85,.3);">
+        <span style="font-size:22px">💬</span>LINEアプリで開いて登録する
+      </a>
       <div class="qr-hint">✅ 登録が完了したら「次へ」をタップ</div>
       <button class="qr-next-btn" onclick="goToJichikaiLine()">
         次へ進む →
@@ -2941,6 +3003,14 @@ function buildJichikaiQRStep() {
         小川自治会の公式LINEへご登録ください。
       </div>
       <img src="${JICHIKAI_QR_DATA_URI}" class="qr-img" alt="小川自治会公式LINE QRコード">
+      <a href="https://lin.ee/0iNsmBP" target="_blank" style="
+        display:flex;align-items:center;justify-content:center;gap:8px;
+        width:100%;padding:14px;border-radius:var(--radius-md);
+        background:#06C755;color:white;font-size:16px;font-weight:700;
+        text-decoration:none;margin-bottom:10px;
+        box-shadow:0 4px 12px rgba(6,199,85,.3);">
+        <span style="font-size:22px">💬</span>LINEアプリで開いて登録する
+      </a>
       <div class="qr-hint">✅ 登録が完了したら「次へ」をタップ</div>
       <button class="qr-next-btn" onclick="goToConfirm()">
         次へ進む →
@@ -2989,12 +3059,28 @@ function buildConfirmStep() {
         </div>
       `).join("")}
     </div>
+    <div class="att-grid">
+      <button class="att-btn ${!answers.attendanceType || answers.attendanceType === 'taimen' ? 'att-taimen' : ''}"
+              onclick="selectAttendance('taimen')">
+        <span class="att-icon">🏛️</span><span>対面出席</span>
+      </button>
+      <button class="att-btn ${answers.attendanceType === 'online' ? 'att-online' : ''}"
+              onclick="selectAttendance('online')">
+        <span class="att-icon">💻</span><span>オンライン</span>
+      </button>
+      <button class="att-btn ${answers.attendanceType === 'absent' ? 'att-absent' : ''}"
+              onclick="selectAttendance('absent')">
+        <span class="att-icon">✗</span><span>欠席</span>
+      </button>
+    </div>
     <div class="action-grid">
       <button class="action-btn" style="background:#6B8299" onclick="openDialog('edit')">
         <span style="font-size:28px">✏️</span>修正する
       </button>
-      <button class="action-btn" style="background:#059669" onclick="openDialog('confirm')">
-        <span style="font-size:28px">✅</span>確定する
+      <button class="action-btn" style="background:${answers.attendanceType === 'absent' ? '#DC2626' : answers.attendanceType === 'online' ? '#1D6FA4' : '#059669'}"
+              onclick="openDialog('confirm')">
+        <span style="font-size:28px">${answers.attendanceType === 'absent' ? '✗' : answers.attendanceType === 'online' ? '💻' : '✅'}</span>
+        ${answers.attendanceType === 'absent' ? '欠席で登録' : answers.attendanceType === 'online' ? 'オンラインで登録' : '対面で登録'}
       </button>
     </div>
   `);
@@ -3050,7 +3136,8 @@ async function dialogOK() {
     const group  = GROUPS.find(g => g.id === answers.group);
     const line   = LINE_STATUS.find(l => l.id === answers.line);
     const jLine  = LINE_STATUS.find(l => l.id === answers.jichikai_line);
-    // 未登録→QR経由の場合は「QRで登録」に変更
+    const attType = answers.attendanceType || "taimen";
+
     const lineLabel = !settings.showBanchoLine
       ? "（画面なし）"
       : answers.line === "unregistered"
@@ -3063,26 +3150,44 @@ async function dialogOK() {
         : answers.jichikai_line === "unregistered"
           ? "QRで登録"
           : jLine?.label?.replace("\n", "") ?? "";
-    await pushResponse({
-      branch:            answers.branch,
-      branchLabel:       branch?.label,
-      group:             answers.group,
-      groupLabel:        group?.label,
-      line:              answers.line,
-      lineLabel:         lineLabel,
-      jichikaiLine:      answers.jichikai_line ?? "skipped",
-      jichikaiLineLabel: jichikaiLineLabel,
-      key: `${answers.branch}_${answers.group}`,
-      ts: Date.now(),
-    });
-    await fetchData(false);
-    setSyncing(false);
+
     const savedBranch = answers.branch;
     const savedGroup  = answers.group;
-    answers = {};
-    step    = 0;
-    showToast(`✅ 登録しました（${responses.length}件目）`);
-    showSeatOverlay(savedBranch, savedGroup);
+    const key = `${savedBranch}_${savedGroup}`;
+    const ts  = Date.now();
+
+    if (attType === "taimen") {
+      // 対面出席: responsesに記録
+      await pushResponse({
+        branch: savedBranch, branchLabel: branch?.label,
+        group:  savedGroup,  groupLabel:  group?.label,
+        line: answers.line, lineLabel, jichikaiLine: answers.jichikai_line ?? "skipped", jichikaiLineLabel,
+        key, ts,
+      });
+      await fetchData(false);
+      setSyncing(false);
+      answers = {}; step = 0;
+      showToast(`✅ 対面出席で登録しました（${responses.length}件目）`);
+      showSeatOverlay(savedBranch, savedGroup);
+
+    } else if (attType === "online") {
+      // オンライン: onlineに記録
+      onlineKeys.add(key); onlineMap.set(key, ts);
+      await pushOnline(savedBranch, savedGroup, ts);
+      await fetchData(false);
+      setSyncing(false);
+      answers = {}; step = 0; buildStep();
+      showToast(`💻 オンライン出席で登録しました`);
+
+    } else {
+      // 欠席: absentに記録
+      absentKeys.add(key); absentMap.set(key, ts);
+      await pushAbsent(savedBranch, savedGroup, ts);
+      await fetchData(false);
+      setSyncing(false);
+      answers = {}; step = 0; buildStep();
+      showToast(`✗ 欠席で登録しました`);
+    }
 
   } else if (type === "edit") {
     answers = {};
@@ -3129,6 +3234,11 @@ function buildResultScreen() {
   if      (activeChart === "cross")    buildCrossTable(total);
   else if (activeChart === "bancho")   buildBanchoLineChart(total);
   else                                 buildJichikaiLineChart(total);
+}
+
+// 管理者認証チェック付きのセルタップハンドラ
+function handleCellTap(bid, gid) {
+  requireAdmin(() => toggleCellState(bid, gid));
 }
 
 async function toggleCellState(bid, gid) {
@@ -3188,22 +3298,23 @@ function buildCrossTable(total) {
       if (absent) {
         // 欠席 → タップで元に戻す
         return `<td style="height:40px;padding:0;text-align:center;cursor:pointer;background:#FEF2F2"
-                    onclick="toggleCellState('${b.id}','${g.id}')" title="タップで取消">
+                    onclick="handleCellTap('${b.id}','${g.id}')" title="タップで取消（管理者のみ）">
                   <div style="display:flex;align-items:center;justify-content:center;height:40px;font-size:15px;font-weight:900;color:#DC2626">欠</div>
                 </td>`;
       } else if (cnt === 0 && !online) {
         // 未参加 → タップでオンライン登録
         return `<td style="height:40px;text-align:center;cursor:pointer;color:#CBD5E1;font-size:10px"
-                    onclick="toggleCellState('${b.id}','${g.id}')" title="タップで💻オンライン→欠→元に戻る">－</td>`;
+                    onclick="handleCellTap('${b.id}','${g.id}')" title="タップで💻オンライン→欠→元に戻る（管理者のみ）">－</td>`;
       } else if (online) {
         // オンライン参加 → タップで欠席へ
         return `<td style="height:40px;padding:0;text-align:center;cursor:pointer;background:#EFF6FF"
-                    onclick="toggleCellState('${b.id}','${g.id}')" title="タップで欠席に変更">
+                    onclick="handleCellTap('${b.id}','${g.id}')" title="タップで欠席に変更（管理者のみ）">
                   <div style="display:flex;align-items:center;justify-content:center;height:40px;font-size:16px">💻</div>
                 </td>`;
       } else {
-        // 対面参加あり
-        return `<td style="height:40px;text-align:center;font-weight:700;color:#1D6FA4">${cnt}</td>`;
+        // 対面参加あり（タップでオンライン→欠→元に戻る）
+        return `<td style="height:40px;text-align:center;cursor:pointer;font-weight:700;color:#1D6FA4"
+                    onclick="handleCellTap('${b.id}','${g.id}')" title="タップで変更（管理者のみ）">${cnt}</td>`;
       }
     }).join("");
 
@@ -3701,11 +3812,13 @@ async function toggleSetting(key) {
 }
 
 function openSettings() {
-  updateToggleUI();
-  document.getElementById("settingsOverlay").classList.add("visible");
-  document.getElementById("navInput").classList.remove("active");
-  document.getElementById("navResult").classList.remove("active");
-  document.getElementById("navSettings").classList.add("active");
+  requireAdmin(() => {
+    updateToggleUI();
+    document.getElementById("settingsOverlay").classList.add("visible");
+    document.getElementById("navInput").classList.remove("active");
+    document.getElementById("navResult").classList.remove("active");
+    document.getElementById("navSettings").classList.add("active");
+  });
 }
 
 function closeSettings() {
@@ -3728,6 +3841,48 @@ function showTab(name) {
     document.getElementById("navResult").classList.add("active");
     fetchData(true);
   }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 管理者認証
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const ADMIN_PASSWORD = "1234";
+let adminAuth = false;
+let pendingAdminCallback = null;
+
+function requireAdmin(callback) {
+  if (adminAuth) { callback(); return; }
+  pendingAdminCallback = callback;
+  document.getElementById("adminPasswordError").textContent = "";
+  document.getElementById("adminPasswordInput").value = "";
+  document.getElementById("adminDialog").classList.add("visible");
+  setTimeout(() => document.getElementById("adminPasswordInput").focus(), 100);
+}
+
+function adminDialogOK() {
+  const input = document.getElementById("adminPasswordInput").value;
+  if (input === ADMIN_PASSWORD) {
+    adminAuth = true;
+    document.getElementById("adminDialog").classList.remove("visible");
+    if (pendingAdminCallback) { pendingAdminCallback(); pendingAdminCallback = null; }
+  } else {
+    document.getElementById("adminPasswordError").textContent = "⚠️ パスワードが違います";
+    document.getElementById("adminPasswordInput").value = "";
+    document.getElementById("adminPasswordInput").focus();
+  }
+}
+
+function adminDialogCancel() {
+  pendingAdminCallback = null;
+  document.getElementById("adminDialog").classList.remove("visible");
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 参加形式選択
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function selectAttendance(type) {
+  answers.attendanceType = type;
+  buildConfirmStep();
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
