@@ -2508,7 +2508,8 @@ let settings = (() => {
 function saveSettings() {
   try { localStorage.setItem("yakuinkai_settings", JSON.stringify(settings)); } catch {}
 }
-let responses   = [];
+let responses      = [];
+let historyRecords = []; // 全登録履歴（CSV用）
 let activeChart = "cross";
 let currentDialog = null;
 let pollerTimer = null;
@@ -2525,6 +2526,7 @@ const STORAGE_KEY = "yakuinkai_v1";
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const ONLINE_KEY    = STORAGE_KEY + "_online";    // オンライン参加データの Firebase パス
 const ABSENT_KEY    = STORAGE_KEY + "_absent";    // 欠席データの Firebase パス
+const HISTORY_KEY   = STORAGE_KEY + "_history";   // 登録履歴（POST 追記、上書きなし）
 const SETTINGS_KEY  = STORAGE_KEY + "_settings";  // 設定データの Firebase パス
 
 // 設定をFirebaseへ書き込み
@@ -2544,18 +2546,25 @@ async function fetchData(showLoading = false) {
   if (!DB_URL) return;
   if (showLoading) setSyncing(true);
   try {
-    const [res1, res2, res3, res4] = await Promise.all([
+    const [res1, res2, res3, res4, res5] = await Promise.all([
       fetch(`${DB_URL}/${STORAGE_KEY}.json`),
       fetch(`${DB_URL}/${ONLINE_KEY}.json`),
       fetch(`${DB_URL}/${SETTINGS_KEY}.json`),
       fetch(`${DB_URL}/${ABSENT_KEY}.json`),
+      fetch(`${DB_URL}/${HISTORY_KEY}.json`),
     ]);
     const data1 = await res1.json();
     const data2 = await res2.json();
     const data3 = await res3.json();
     const data4 = await res4.json();
+    const data5 = await res5.json();
 
-    responses = data1 ? Object.values(data1) : [];
+    // data1 が null の場合は既存 responses を保持（書き込みとの競合対策）
+    if (data1 !== null && data1 !== undefined) {
+      responses = Object.values(data1);
+    }
+    // 履歴: 常に最新で上書き
+    historyRecords = data5 ? Object.values(data5).sort((a, b) => (a.ts || 0) - (b.ts || 0)) : [];
 
     if (pendingOnlineWrite === 0) {
       onlineKeys.clear();
@@ -2659,12 +2668,24 @@ async function deleteResponse(bid, gid) {
   await fetch(`${DB_URL}/${STORAGE_KEY}/${key}.json`, {method: "DELETE"});
 }
 
+// 登録履歴をFirebaseに追記（POST: 常に新規追加、上書きなし）
+async function pushHistory(record) {
+  await fetch(`${DB_URL}/${HISTORY_KEY}.json`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(record),
+  });
+}
+
 async function clearData() {
   absentKeys.clear(); absentMap.clear();
+  historyRecords = [];
+  responses = [];
   await Promise.all([
     fetch(`${DB_URL}/${STORAGE_KEY}.json`, {method: "DELETE"}),
     fetch(`${DB_URL}/${ONLINE_KEY}.json`,  {method: "DELETE"}),
     fetch(`${DB_URL}/${ABSENT_KEY}.json`,  {method: "DELETE"}),
+    fetch(`${DB_URL}/${HISTORY_KEY}.json`, {method: "DELETE"}),
   ]);
 }
 
@@ -3169,13 +3190,15 @@ async function dialogOK() {
       // 対面出席: responses に記録し、online/absent を削除
       onlineKeys.delete(key); onlineMap.delete(key);
       absentKeys.delete(key); absentMap.delete(key);
+      const rec = {
+        branch: savedBranch, branchLabel: branch?.label,
+        group:  savedGroup,  groupLabel:  group?.label,
+        line: answers.line, lineLabel, jichikaiLine: answers.jichikai_line ?? "skipped", jichikaiLineLabel,
+        attendanceType: "taimen", key, ts,
+      };
       await Promise.all([
-        pushResponse({
-          branch: savedBranch, branchLabel: branch?.label,
-          group:  savedGroup,  groupLabel:  group?.label,
-          line: answers.line, lineLabel, jichikaiLine: answers.jichikai_line ?? "skipped", jichikaiLineLabel,
-          key, ts,
-        }),
+        pushResponse(rec),
+        pushHistory(rec),
         deleteOnline(savedBranch, savedGroup),
         deleteAbsent(savedBranch, savedGroup),
       ]);
@@ -3191,6 +3214,7 @@ async function dialogOK() {
       absentKeys.delete(key); absentMap.delete(key);
       await Promise.all([
         pushOnline(savedBranch, savedGroup, ts),
+        pushHistory({ branch: savedBranch, branchLabel: branch?.label, group: savedGroup, groupLabel: group?.label, attendanceType: "online", key, ts }),
         deleteResponse(savedBranch, savedGroup),
         deleteAbsent(savedBranch, savedGroup),
       ]);
@@ -3205,6 +3229,7 @@ async function dialogOK() {
       onlineKeys.delete(key); onlineMap.delete(key);
       await Promise.all([
         pushAbsent(savedBranch, savedGroup, ts),
+        pushHistory({ branch: savedBranch, branchLabel: branch?.label, group: savedGroup, groupLabel: group?.label, attendanceType: "absent", key, ts }),
         deleteResponse(savedBranch, savedGroup),
         deleteOnline(savedBranch, savedGroup),
       ]);
@@ -3525,40 +3550,22 @@ function switchChart(id) {
 // CSV出力
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function downloadCSV() {
-  if (!responses.length && !onlineMap.size) { showToast("⚠️ データがありません"); return; }
+  if (!historyRecords.length && !responses.length && !onlineMap.size) { showToast("⚠️ データがありません"); return; }
   const header = "番号,参加形式,支部,班,班長LINE登録状況,公式LINE登録状況,登録日時";
 
-  // 対面参加行
-  const taimenRows = responses.map((r, i) => [
+  // 全登録履歴（タイムスタンプ順）
+  const typeLabel = { taimen: "対面", online: "💻オンライン", absent: "欠席" };
+  const histRows = historyRecords.map((r, i) => [
     i + 1,
-    "対面",
-    r.branchLabel,
-    r.groupLabel,
-    r.lineLabel,
+    typeLabel[r.attendanceType] ?? "対面",
+    r.branchLabel ?? r.branch,
+    r.groupLabel  ?? r.group,
+    r.lineLabel   ?? "－",
     r.jichikaiLineLabel ?? "（スキップ）",
     r.ts ? new Date(r.ts).toLocaleString("ja-JP") : "",
   ].join(","));
 
-  // オンライン参加行
-  let extraNum = responses.length + 1;
-  const onlineRows = [];
-  onlineMap.forEach((ts, key) => {
-    const [bid, gid] = key.split("_");
-    const branch = BRANCHES.find(b => b.id === bid);
-    const group  = GROUPS.find(g => g.id === gid);
-    onlineRows.push([extraNum++, "💻オンライン", branch?.label ?? bid, group?.label ?? gid, "－", "－", new Date(ts).toLocaleString("ja-JP")].join(","));
-  });
-
-  // 欠席行
-  const absentRows = [];
-  absentMap.forEach((ts, key) => {
-    const [bid, gid] = key.split("_");
-    const branch = BRANCHES.find(b => b.id === bid);
-    const group  = GROUPS.find(g => g.id === gid);
-    absentRows.push([extraNum++, "欠席", branch?.label ?? bid, group?.label ?? gid, "－", "－", new Date(ts).toLocaleString("ja-JP")].join(","));
-  });
-
-  const csv  = "\uFEFF" + [header, ...taimenRows, ...onlineRows, ...absentRows].join("\n");
+  const csv  = "\uFEFF" + [header, ...histRows].join("\n");
   const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
@@ -3568,7 +3575,7 @@ function downloadCSV() {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  showToast(`📥 CSV（対面${responses.length}件／💻${onlineMap.size}件／欠${absentMap.size}件）`);
+  showToast(`📥 CSV出力（履歴${historyRecords.length}件）`);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
