@@ -2756,6 +2756,10 @@ async function fetchData(showLoading = false) {
     if (document.getElementById("screenResult").classList.contains("visible")) {
       buildResultScreen();
     }
+    // ブロッカー表示中に activeMeetingId が設定されたら即時解除
+    if (settings.activeMeetingId && document.getElementById("meetingBlocker")) {
+      buildStep();
+    }
     if (document.getElementById("screenCalendar")?.classList.contains("visible")) {
       // インポートオーバーレイが開いている間は再描画しない
       // また入力中のフォームがあればフォーム値を保持して更新
@@ -2929,7 +2933,7 @@ function buildStep() {
     document.getElementById("progressWrap").innerHTML = "";
     document.getElementById("backBtn").classList.remove("visible");
     setStepContent(`
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+      <div id="meetingBlocker" style="display:flex;flex-direction:column;align-items:center;justify-content:center;
                   height:100%;gap:20px;text-align:center;padding:24px">
         <div style="font-size:60px">📅</div>
         <div style="font-size:20px;font-weight:900;color:var(--text)">役員会が設定されていません</div>
@@ -4082,6 +4086,7 @@ function showTab(name) {
   if (name === "input") {
     document.getElementById("screenInput").classList.add("visible");
     document.getElementById("navInput").classList.add("active");
+    buildStep(); // 入力タブに戻るたびに最新状態で再描画（ブロッカー解除を確実に）
   } else if (name === "calendar") {
     document.getElementById("screenCalendar").classList.add("visible");
     document.getElementById("navCalendar").classList.add("active");
@@ -4250,14 +4255,29 @@ function buildHistoryTab() {
   // ヘッダー: 役員会の日付列
   const mtgs = meetings; // 新しい順
   const headerCols = mtgs.map(m =>
-    `<th style="min-width:64px;text-align:center;font-size:10px">${m.date.slice(5)}<br><span style="font-weight:400">${m.label||""}</span></th>`
+    `<th style="min-width:56px;text-align:center;font-size:10px;line-height:1.3">${m.date.slice(5)}<br><span style="font-weight:400;font-size:9px">${m.label||""}</span></th>`
   ).join("");
 
-  // 行: 各支部×班
+  // 合計行: 各役員会の対面/オンライン/欠席数
+  const totalCells = mtgs.map(m => {
+    const d = histMeetingData[m.id];
+    if (!d) return `<td style="text-align:center;font-size:10px;color:var(--gray-500)">ー</td>`;
+    const tai = d.responses ? Object.keys(d.responses).length : 0;
+    const onl = d.online    ? Object.keys(d.online).length    : 0;
+    const abs = d.absent    ? Object.keys(d.absent).length    : 0;
+    return `<td style="text-align:center;font-size:9px;line-height:1.4;background:#F0F7FF;padding:4px 2px">
+      <span style="color:#1D6FA4;font-weight:700">${tai}</span><br>
+      <span style="color:#2563EB">💻${onl}</span><br>
+      <span style="color:#DC2626">欠${abs}</span>
+    </td>`;
+  }).join("");
+
+  // 行: 各支部×班（支部+班を1列に結合）
   const rows = BRANCHES.flatMap(b => {
     const gids = BRANCH_GROUPS[b.id];
     return gids.map(gid => {
       const grp = GROUPS.find(g => g.id === gid);
+      const branchShort = b.label.replace("支部","");
       const cells = mtgs.map(m => {
         const d = histMeetingData[m.id];
         if (!d) return `<td class="hist-att-none">ー</td>`;
@@ -4269,8 +4289,9 @@ function buildHistoryTab() {
         return `<td class="hist-att-none">ー</td>`;
       }).join("");
       return `<tr>
-        <td style="font-weight:700;white-space:nowrap;font-size:11px;text-align:left">${b.label.replace("支部","")}</td>
-        <td style="white-space:nowrap;font-size:11px">${grp?.label||gid}</td>
+        <td style="white-space:nowrap;font-size:11px;font-weight:700;text-align:left">
+          ${branchShort}<span style="color:var(--gray-500);font-weight:400">-${grp?.label||gid}</span>
+        </td>
         ${cells}
       </tr>`;
     });
@@ -4281,11 +4302,18 @@ function buildHistoryTab() {
     <div class="hist-table-wrap">
       <table class="hist-table">
         <thead><tr>
-          <th style="text-align:left;min-width:60px">支部</th>
-          <th style="text-align:left;min-width:32px">班</th>
+          <th style="text-align:left;min-width:72px">支部-班</th>
           ${headerCols}
         </tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody>
+          <tr style="background:#F0F7FF">
+            <td style="font-size:10px;font-weight:700;text-align:left;line-height:1.4">
+              合計<br><span style="font-weight:400;color:var(--gray-500)">対面/💻/欠</span>
+            </td>
+            ${totalCells}
+          </tr>
+          ${rows}
+        </tbody>
       </table>
     </div>`;
 }
