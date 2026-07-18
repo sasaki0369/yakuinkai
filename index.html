@@ -4261,13 +4261,15 @@ function buildHistoryTab() {
   // 合計行: 各役員会の対面/オンライン/欠席数
   const totalCells = mtgs.map(m => {
     const d = histMeetingData[m.id];
-    if (!d) return `<td style="text-align:center;font-size:10px;color:var(--gray-500)">ー</td>`;
+    if (!d) return `<td style="text-align:center;font-size:10px;background:#E8F0FE;color:var(--gray-500)">ー</td>`;
     const tai = d.responses ? Object.keys(d.responses).length : 0;
     const onl = d.online    ? Object.keys(d.online).length    : 0;
     const abs = d.absent    ? Object.keys(d.absent).length    : 0;
-    return `<td style="text-align:center;font-size:9px;line-height:1.4;background:#F0F7FF;padding:4px 2px">
-      <span style="color:#1D6FA4;font-weight:700">${tai}</span><br>
-      <span style="color:#2563EB">💻${onl}</span><br>
+    return `<td style="text-align:center;font-size:9px;background:#E8F0FE;padding:5px 2px;white-space:nowrap">
+      <span style="color:#1D6FA4;font-weight:700">${tai}</span>
+      <span style="color:#6B8299">/</span>
+      <span style="color:#2563EB">💻${onl}</span>
+      <span style="color:#6B8299">/</span>
       <span style="color:#DC2626">欠${abs}</span>
     </td>`;
   }).join("");
@@ -4306,9 +4308,9 @@ function buildHistoryTab() {
           ${headerCols}
         </tr></thead>
         <tbody>
-          <tr style="background:#F0F7FF">
-            <td style="font-size:10px;font-weight:700;text-align:left;line-height:1.4">
-              合計<br><span style="font-weight:400;color:var(--gray-500)">対面/💻/欠</span>
+          <tr style="background:#E8F0FE">
+            <td style="font-size:10px;font-weight:700;text-align:left;background:#E8F0FE;white-space:nowrap">
+              合計
             </td>
             ${totalCells}
           </tr>
