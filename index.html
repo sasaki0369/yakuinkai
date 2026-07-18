@@ -761,6 +761,28 @@ td {
 }
 .meeting-input:focus { outline: none; border-color: var(--blue); }
 
+/* ─── エクスポート/インポート ──────────────────── */
+.import-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.6);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.import-overlay.visible { display: flex; }
+.import-sheet {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  padding: 22px 18px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: var(--shadow-lg);
+  animation: popIn .18s ease both;
+}
+
 /* ─── タップフィードバック ─── */
 @keyframes tapFlash {
   0%   { box-shadow: 0 0 0 0 rgba(29,111,164,0); background-color: inherit; }
@@ -1043,6 +1065,35 @@ td {
     <div style="display:flex;gap:10px">
       <button class="seat-confirm-btn" style="background:var(--gray-500);flex:1" onclick="seatExit()">終了する</button>
       <button class="seat-confirm-btn" style="flex:1" onclick="closeSeatOverlay()">次の登録へ →</button>
+    </div>
+  </div>
+</div>
+
+<!-- エクスポート/インポートオーバーレイ -->
+<div class="import-overlay" id="importOverlay">
+  <div class="import-sheet">
+    <div style="font-size:20px;font-weight:900;color:var(--text);margin-bottom:6px">📥 データをインポート</div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">JSONファイルを選択し、インポート先の役員会を指定してください</div>
+
+    <!-- ファイル選択 -->
+    <label style="display:block;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">① JSONファイルを選択</div>
+      <input type="file" id="importFile" accept=".json"
+             style="width:100%;padding:10px;border:2px solid var(--gray-100);border-radius:var(--radius-sm);font-size:13px;font-family:inherit"
+             onchange="onImportFileSelect(this)">
+      <div id="importFileInfo" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
+    </label>
+
+    <!-- インポート先 -->
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px">② インポート先の役員会</div>
+    <div id="importTargetOptions" style="margin-bottom:14px">
+      <div style="font-size:12px;color:var(--gray-500)">役員会一覧を読み込み中...</div>
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <button class="dialog-btn" style="background:#6B8299;color:white;flex:1" onclick="closeImportOverlay()">キャンセル</button>
+      <button class="dialog-btn" id="importExecBtn" style="background:var(--blue);color:white;flex:1;opacity:.4"
+              onclick="execImport()" disabled>インポート実行</button>
     </div>
   </div>
 </div>
@@ -4084,7 +4135,23 @@ function setCalTab(tab) { calTab = tab; buildCalendarScreen(); }
 
 // ── スケジュールタブ ──
 function buildScheduleTab() {
-  const addForm = adminAuth ? `
+  const activeLabel = (() => {
+    const m = meetings.find(m => m.id === settings.activeMeetingId);
+    return m ? `${m.date} ${m.label}` : "（現在のデータ）";
+  })();
+  const exportBtn = `
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button onclick="exportData()" class="meeting-btn"
+              style="flex:1;padding:12px;background:var(--green);color:white;font-size:13px">
+        📤 エクスポート<br><span style="font-size:10px;font-weight:400">${activeLabel}</span>
+      </button>
+      <button onclick="requireAdmin(openImportOverlay)" class="meeting-btn"
+              style="flex:1;padding:12px;background:#7C3AED;color:white;font-size:13px">
+        📥 インポート<br><span style="font-size:10px;font-weight:400">役員会に読み込む</span>
+      </button>
+    </div>`;
+
+  const addForm = adminAuth ? exportBtn + `
     <div class="meeting-form">
       <div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:10px">➕ 役員会を追加</div>
       <input type="date" id="newMeetingDate" class="meeting-input" value="${new Date().toISOString().slice(0,10)}">
@@ -4263,6 +4330,169 @@ async function deactivateMeeting() {
   await fetchData(true);
   buildCalendarScreen();
   showToast("役員会の受付設定を解除しました");
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// エクスポート / インポート
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+let importFileData = null;   // 選択されたJSONデータ
+let importTargetId = null;   // インポート先役員会ID（"new" or meetingId）
+
+// ── エクスポート ──
+async function exportData() {
+  showToast("⏳ データを取得中...");
+  try {
+    const [r1, r2, r3, r4] = await Promise.all([
+      fetch(`${DB_URL}/${mResKey()}.json`),
+      fetch(`${DB_URL}/${mOnlKey()}.json`),
+      fetch(`${DB_URL}/${mAbsKey()}.json`),
+      fetch(`${DB_URL}/${mHisKey()}.json`),
+    ]);
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      sourceMeetingId: settings.activeMeetingId || null,
+      responses: await r1.json(),
+      online:    await r2.json(),
+      absent:    await r3.json(),
+      history:   await r4.json(),
+    };
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], {type: "application/json"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    const m    = meetings.find(m => m.id === settings.activeMeetingId);
+    a.href     = url;
+    a.download = `yakuinkai_${m?.date || new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    const cnt = (payload.responses ? Object.keys(payload.responses).length : 0)
+              + (payload.online    ? Object.keys(payload.online).length    : 0)
+              + (payload.absent    ? Object.keys(payload.absent).length    : 0);
+    showToast(`📤 ${cnt}件をエクスポートしました`);
+  } catch(e) {
+    showToast("❌ エクスポートに失敗しました");
+    console.error(e);
+  }
+}
+
+// ── インポート UI ──
+function openImportOverlay() {
+  importFileData = null;
+  importTargetId = null;
+  document.getElementById("importFile").value = "";
+  document.getElementById("importFileInfo").textContent = "";
+  document.getElementById("importExecBtn").disabled = true;
+  document.getElementById("importExecBtn").style.opacity = ".4";
+  renderImportTargets();
+  document.getElementById("importOverlay").classList.add("visible");
+}
+
+function closeImportOverlay() {
+  document.getElementById("importOverlay").classList.remove("visible");
+}
+
+function renderImportTargets() {
+  const el = document.getElementById("importTargetOptions");
+  const meetingRadios = meetings.map(m => `
+    <label style="display:flex;align-items:center;gap:8px;padding:10px;border:2px solid var(--gray-100);
+                  border-radius:var(--radius-sm);margin-bottom:6px;cursor:pointer">
+      <input type="radio" name="importTarget" value="${m.id}"
+             onchange="onImportTargetChange('${m.id}')" style="width:18px;height:18px">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--text)">${m.date}</div>
+        <div style="font-size:11px;color:var(--gray-500)">${m.label || "役員会"}</div>
+      </div>
+    </label>`).join("");
+
+  el.innerHTML = meetingRadios + `
+    <label style="display:flex;align-items:center;gap:8px;padding:10px;border:2px solid var(--gray-100);
+                  border-radius:var(--radius-sm);margin-bottom:6px;cursor:pointer">
+      <input type="radio" name="importTarget" value="new"
+             onchange="onImportTargetChange('new')" style="width:18px;height:18px">
+      <div style="font-size:13px;font-weight:700;color:var(--text)">＋ 新しい役員会として追加</div>
+    </label>
+    <div id="importNewForm" style="display:none;padding:8px;background:var(--gray-50);border-radius:var(--radius-sm);margin-bottom:6px">
+      <input type="date"  id="importNewDate"  class="meeting-input" style="margin-bottom:6px"
+             value="${new Date().toISOString().slice(0,10)}">
+      <input type="text"  id="importNewLabel" class="meeting-input" placeholder="役員会名">
+    </div>`;
+}
+
+function onImportTargetChange(val) {
+  importTargetId = val;
+  document.getElementById("importNewForm").style.display = val === "new" ? "block" : "none";
+  updateImportBtn();
+}
+
+function onImportFileSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      importFileData = JSON.parse(e.target.result);
+      const cnt = ((importFileData.responses ? Object.keys(importFileData.responses).length : 0)
+                 + (importFileData.online    ? Object.keys(importFileData.online).length    : 0)
+                 + (importFileData.absent    ? Object.keys(importFileData.absent).length    : 0));
+      document.getElementById("importFileInfo").textContent =
+        `✅ ${file.name}（${cnt}件）`;
+    } catch {
+      importFileData = null;
+      document.getElementById("importFileInfo").textContent = "❌ JSONの読み込みに失敗しました";
+    }
+    updateImportBtn();
+  };
+  reader.readAsText(file);
+}
+
+function updateImportBtn() {
+  const ok = importFileData && importTargetId;
+  const btn = document.getElementById("importExecBtn");
+  btn.disabled = !ok;
+  btn.style.opacity = ok ? "1" : ".4";
+}
+
+// ── インポート実行 ──
+async function execImport() {
+  if (!importFileData || !importTargetId) return;
+
+  let mid = importTargetId;
+
+  // 新しい役員会を作成
+  if (mid === "new") {
+    const date  = document.getElementById("importNewDate")?.value;
+    const label = document.getElementById("importNewLabel")?.value.trim() || "役員会";
+    if (!date) { showToast("⚠️ 日付を入力してください"); return; }
+    const mRes = await fetch(`${DB_URL}/${MEETINGS_KEY}.json`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ date, label, ts: Date.now() }),
+    });
+    const mData = await mRes.json();
+    mid = mData.name;
+    showToast("📅 役員会を作成しました");
+  }
+
+  // データを書き込み
+  const resKey = `yakuinkai_v1_m_${mid}`;
+  const ops = [];
+  if (importFileData.responses) ops.push(fetch(`${DB_URL}/${resKey}.json`,         { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(importFileData.responses) }));
+  if (importFileData.online)    ops.push(fetch(`${DB_URL}/${resKey}_online.json`,   { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(importFileData.online) }));
+  if (importFileData.absent)    ops.push(fetch(`${DB_URL}/${resKey}_absent.json`,   { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(importFileData.absent) }));
+  if (importFileData.history)   ops.push(fetch(`${DB_URL}/${resKey}_history.json`,  { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(importFileData.history) }));
+  await Promise.all(ops);
+  // histMeetingData のキャッシュをクリアして再取得を促す
+  delete histMeetingData[mid];
+
+  await fetchData(false);
+  closeImportOverlay();
+  const cnt = ((importFileData.responses ? Object.keys(importFileData.responses).length : 0)
+             + (importFileData.online    ? Object.keys(importFileData.online).length    : 0)
+             + (importFileData.absent    ? Object.keys(importFileData.absent).length    : 0));
+  showToast(`✅ ${cnt}件をインポートしました`);
+  buildCalendarScreen();
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
