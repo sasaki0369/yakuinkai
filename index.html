@@ -692,6 +692,65 @@ td {
 }
 .admin-input:focus { outline: none; border-color: var(--blue); }
 
+/* ─── カレンダー・役員会スケジュール ─── */
+.meeting-card {
+  background: var(--white);
+  border: 2.5px solid var(--gray-100);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.meeting-card.active { border-color: var(--blue); background: var(--blue-light); }
+.meeting-card.active .meeting-date { color: var(--blue); }
+.meeting-date { font-size: 17px; font-weight: 900; color: var(--text); }
+.meeting-label { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+.meeting-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 8px;
+  border-radius: 20px; background: var(--blue); color: white; flex-shrink: 0;
+}
+.meeting-btn {
+  padding: 6px 12px; border-radius: var(--radius-sm); border: none;
+  font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+  transition: opacity .15s;
+}
+.meeting-btn:active { opacity: .75; }
+.cal-tab { display: flex; gap: 6px; margin-bottom: 14px; }
+.cal-tab-btn {
+  padding: 8px 14px; border-radius: var(--radius-sm);
+  border: 2px solid var(--gray-100); background: var(--white);
+  color: var(--gray-500); font-size: 13px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+.cal-tab-btn.active { background: var(--blue); color: white; border-color: var(--blue); }
+.hist-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.hist-table { border-collapse: collapse; font-size: 11px; min-width: 100%; }
+.hist-table th {
+  padding: 6px 8px; background: var(--blue); color: white;
+  font-weight: 700; white-space: nowrap; position: sticky; top: 0;
+}
+.hist-table td {
+  padding: 6px 8px; text-align: center; border-bottom: 1px solid #EEF3F8;
+  white-space: nowrap;
+}
+.hist-table tr:hover td { background: var(--gray-50); }
+.hist-att-taimen  { color: var(--blue); font-weight: 700; }
+.hist-att-online  { color: #2563EB; }
+.hist-att-absent  { color: #DC2626; font-weight: 700; }
+.hist-att-none    { color: var(--gray-100); }
+.meeting-form {
+  background: var(--white); border-radius: var(--radius-lg);
+  padding: 18px; box-shadow: var(--shadow-md); margin-bottom: 14px;
+}
+.meeting-input {
+  width: 100%; padding: 12px; border: 2px solid var(--gray-100);
+  border-radius: var(--radius-sm); font-size: 15px; font-family: inherit;
+  margin-bottom: 10px;
+}
+.meeting-input:focus { outline: none; border-color: var(--blue); }
+
 /* ─── タップフィードバック ─── */
 @keyframes tapFlash {
   0%   { box-shadow: 0 0 0 0 rgba(29,111,164,0); background-color: inherit; }
@@ -870,6 +929,7 @@ td {
   <div class="header-row2">
     <button class="nav-btn active" id="navInput"  onclick="showTab('input')">入力</button>
     <button class="nav-btn"        id="navResult" onclick="showTab('result')">集計結果</button>
+    <button class="nav-btn"        id="navCalendar" onclick="showTab('calendar')">📅</button>
     <button class="nav-btn"        id="navSettings" onclick="openSettings()">⚙️ 設定</button>
   </div>
 </header>
@@ -882,11 +942,16 @@ td {
 </div>
 
 <!-- 集計画面 -->
+<!-- カレンダー画面 -->
+<div class="screen" id="screenCalendar">
+  <div id="calContent"></div>
+</div>
+
 <div class="screen" id="screenResult">
   <div class="result-summary">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
       <div>
-        <div style="font-size:12px;color:rgba(255,255,255,.75);margin-bottom:2px">総登録数（全端末合計）</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.75);margin-bottom:2px" id="activeMeetingLabel">集計（全端末合計）</div>
         <div class="result-total-num" id="totalCount">0<span style="font-size:16px;margin-left:4px">件</span></div>
       </div>
       <div class="result-btns">
@@ -2501,8 +2566,9 @@ let settings = (() => {
     return {
       showBanchoLine:   s.showBanchoLine   !== false,
       showJichikaiLine: s.showJichikaiLine !== false,
+      activeMeetingId:  s.activeMeetingId  || null,
     };
-  } catch { return { showBanchoLine: true, showJichikaiLine: true }; }
+  } catch { return { showBanchoLine: true, showJichikaiLine: true, activeMeetingId: null }; }
 })();
 
 function saveSettings() {
@@ -2510,6 +2576,7 @@ function saveSettings() {
 }
 let responses      = [];
 let historyRecords = []; // 全登録履歴（CSV用）
+let meetings      = []; // 役員会スケジュール一覧
 let activeChart = "cross";
 let currentDialog = null;
 let pollerTimer = null;
@@ -2528,6 +2595,13 @@ const STORAGE_KEY = "yakuinkai_v1";
 const ONLINE_KEY    = STORAGE_KEY + "_online";    // オンライン参加データの Firebase パス
 const ABSENT_KEY    = STORAGE_KEY + "_absent";    // 欠席データの Firebase パス
 const HISTORY_KEY   = STORAGE_KEY + "_history";   // 登録履歴（POST 追記、上書きなし）
+const MEETINGS_KEY  = "yakuinkai_v1_meetings";        // 役員会スケジュール
+
+// アクティブ役員会に対応したパスを返す
+function mResKey()  { const m=settings.activeMeetingId; return m ? `yakuinkai_v1_m_${m}` : STORAGE_KEY; }
+function mOnlKey()  { const m=settings.activeMeetingId; return m ? `yakuinkai_v1_m_${m}_online` : ONLINE_KEY; }
+function mAbsKey()  { const m=settings.activeMeetingId; return m ? `yakuinkai_v1_m_${m}_absent` : ABSENT_KEY; }
+function mHisKey()  { const m=settings.activeMeetingId; return m ? `yakuinkai_v1_m_${m}_history` : HISTORY_KEY; }
 const SETTINGS_KEY  = STORAGE_KEY + "_settings";  // 設定データの Firebase パス
 
 // 設定をFirebaseへ書き込み
@@ -2536,7 +2610,11 @@ async function pushSettings() {
     await fetch(`${DB_URL}/${SETTINGS_KEY}.json`, {
       method: "PUT",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(settings),
+      body: JSON.stringify({
+        showBanchoLine:   settings.showBanchoLine,
+        showJichikaiLine: settings.showJichikaiLine,
+        activeMeetingId:  settings.activeMeetingId,
+      }),
     });
   } catch {}
 }
@@ -2547,18 +2625,20 @@ async function fetchData(showLoading = false) {
   if (!DB_URL) return;
   if (showLoading) setSyncing(true);
   try {
-    const [res1, res2, res3, res4, res5] = await Promise.all([
-      fetch(`${DB_URL}/${STORAGE_KEY}.json`),
-      fetch(`${DB_URL}/${ONLINE_KEY}.json`),
+    const [res1, res2, res3, res4, res5, res6] = await Promise.all([
+      fetch(`${DB_URL}/${mResKey()}.json`),
+      fetch(`${DB_URL}/${mOnlKey()}.json`),
       fetch(`${DB_URL}/${SETTINGS_KEY}.json`),
-      fetch(`${DB_URL}/${ABSENT_KEY}.json`),
-      fetch(`${DB_URL}/${HISTORY_KEY}.json`),
+      fetch(`${DB_URL}/${mAbsKey()}.json`),
+      fetch(`${DB_URL}/${mHisKey()}.json`),
+      fetch(`${DB_URL}/${MEETINGS_KEY}.json`),
     ]);
     const data1 = await res1.json();
     const data2 = await res2.json();
     const data3 = await res3.json();
     const data4 = await res4.json();
     const data5 = await res5.json();
+    const data6 = await res6.json();
 
     // data1 が null のときは書き込み中かどうかで分岐
     // 書き込み中でなければ Firebase が空 → responses をクリア
@@ -2570,6 +2650,7 @@ async function fetchData(showLoading = false) {
     }
     // 履歴: 常に最新で上書き
     historyRecords = data5 ? Object.values(data5).sort((a, b) => (a.ts || 0) - (b.ts || 0)) : [];
+    meetings = data6 ? Object.entries(data6).map(([id,m]) => ({id,...m})).sort((a,b) => b.date.localeCompare(a.date)) : [];
 
     if (pendingOnlineWrite === 0) {
       onlineKeys.clear();
@@ -2599,6 +2680,8 @@ async function fetchData(showLoading = false) {
       let changed = false;
       if (typeof data3.showBanchoLine   === "boolean" && data3.showBanchoLine   !== settings.showBanchoLine)   { settings.showBanchoLine   = data3.showBanchoLine;   changed = true; }
       if (typeof data3.showJichikaiLine === "boolean" && data3.showJichikaiLine !== settings.showJichikaiLine) { settings.showJichikaiLine = data3.showJichikaiLine; changed = true; }
+      const newMid = data3.activeMeetingId || null;
+      if (newMid !== settings.activeMeetingId) { settings.activeMeetingId = newMid; changed = true; }
       if (changed) {
         saveSettings();
         updateToggleUI();
@@ -2612,6 +2695,9 @@ async function fetchData(showLoading = false) {
     if (document.getElementById("screenResult").classList.contains("visible")) {
       buildResultScreen();
     }
+    if (document.getElementById("screenCalendar")?.classList.contains("visible")) {
+      buildCalendarScreen();
+    }
   } catch(e) {
     setSyncing(false);
     setSyncError();
@@ -2621,7 +2707,7 @@ async function fetchData(showLoading = false) {
 async function pushResponse(record) {
   // 支部_班をキーにPUTすることで、同一支部班の登録は最新で上書き
   const key = record.key || `${record.branch}_${record.group}`;
-  await fetch(`${DB_URL}/${STORAGE_KEY}/${key}.json`, {
+  await fetch(`${DB_URL}/${mResKey()}/${key}.json`, {
     method: "PUT",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify(record),
@@ -2633,7 +2719,7 @@ async function pushOnline(bid, gid, ts) {
   const key     = bid + "_" + gid;
   const branch  = BRANCHES.find(b => b.id === bid);
   const group   = GROUPS.find(g => g.id === gid);
-  await fetch(`${DB_URL}/${ONLINE_KEY}/${key}.json`, {
+  await fetch(`${DB_URL}/${mOnlKey()}/${key}.json`, {
     method: "PUT",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
@@ -2647,7 +2733,7 @@ async function pushOnline(bid, gid, ts) {
 // オンライン参加をFirebaseから削除
 async function deleteOnline(bid, gid) {
   const key = bid + "_" + gid;
-  await fetch(`${DB_URL}/${ONLINE_KEY}/${key}.json`, {method: "DELETE"});
+  await fetch(`${DB_URL}/${mOnlKey()}/${key}.json`, {method: "DELETE"});
 }
 
 // 欠席をFirebaseに書き込み
@@ -2655,7 +2741,7 @@ async function pushAbsent(bid, gid, ts) {
   const key    = bid + "_" + gid;
   const branch = BRANCHES.find(b => b.id === bid);
   const group  = GROUPS.find(g => g.id === gid);
-  await fetch(`${DB_URL}/${ABSENT_KEY}/${key}.json`, {
+  await fetch(`${DB_URL}/${mAbsKey()}/${key}.json`, {
     method: "PUT",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({ branch: bid, branchLabel: branch?.label, group: gid, groupLabel: group?.label, ts }),
@@ -2664,18 +2750,18 @@ async function pushAbsent(bid, gid, ts) {
 
 // 欠席をFirebaseから削除
 async function deleteAbsent(bid, gid) {
-  await fetch(`${DB_URL}/${ABSENT_KEY}/${bid}_${gid}.json`, {method: "DELETE"});
+  await fetch(`${DB_URL}/${mAbsKey()}/${bid}_${gid}.json`, {method: "DELETE"});
 }
 
 // 対面参加レコードをFirebaseから削除
 async function deleteResponse(bid, gid) {
   const key = bid + "_" + gid;
-  await fetch(`${DB_URL}/${STORAGE_KEY}/${key}.json`, {method: "DELETE"});
+  await fetch(`${DB_URL}/${mResKey()}/${key}.json`, {method: "DELETE"});
 }
 
 // 登録履歴をFirebaseに追記（POST: 常に新規追加、上書きなし）
 async function pushHistory(record) {
-  await fetch(`${DB_URL}/${HISTORY_KEY}.json`, {
+  await fetch(`${DB_URL}/${mHisKey()}.json`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify(record),
@@ -2686,11 +2772,12 @@ async function clearData() {
   absentKeys.clear(); absentMap.clear();
   historyRecords = [];
   responses = [];
+  onlineKeys.clear(); onlineMap.clear();
   await Promise.all([
-    fetch(`${DB_URL}/${STORAGE_KEY}.json`, {method: "DELETE"}),
-    fetch(`${DB_URL}/${ONLINE_KEY}.json`,  {method: "DELETE"}),
-    fetch(`${DB_URL}/${ABSENT_KEY}.json`,  {method: "DELETE"}),
-    fetch(`${DB_URL}/${HISTORY_KEY}.json`, {method: "DELETE"}),
+    fetch(`${DB_URL}/${mResKey()}.json`,  {method: "DELETE"}),
+    fetch(`${DB_URL}/${mOnlKey()}.json`,  {method: "DELETE"}),
+    fetch(`${DB_URL}/${mAbsKey()}.json`,  {method: "DELETE"}),
+    fetch(`${DB_URL}/${mHisKey()}.json`,  {method: "DELETE"}),
   ]);
 }
 
@@ -3273,6 +3360,10 @@ function buildResultScreen() {
   const grandAll = total + onlineKeys.size + absentKeys.size;
   document.getElementById("totalCount").innerHTML =
     grandAll + '<span style="font-size:16px;margin-left:4px">件</span>';
+  // 役員会名を表示
+  const activeMtg = meetings.find(m => m.id === settings.activeMeetingId);
+  const labelEl = document.getElementById("activeMeetingLabel");
+  if (labelEl) labelEl.textContent = activeMtg ? `${activeMtg.date} ${activeMtg.label}` : "集計（全端末合計）";
 
   document.getElementById("chartTabs").innerHTML = CHART_VIEWS.map(v => `
     <button class="chart-tab ${activeChart === v.id ? "active" : ""}"
@@ -3883,14 +3974,18 @@ function closeSettings() {
 }
 
 function showTab(name) {
-  ["screenInput","screenResult"].forEach(id =>
-    document.getElementById(id).classList.remove("visible"));
-  document.getElementById("navInput").classList.remove("active");
-  document.getElementById("navResult").classList.remove("active");
-  document.getElementById("navSettings").classList.remove("active");
+  ["screenInput","screenResult","screenCalendar"].forEach(id =>
+    document.getElementById(id)?.classList.remove("visible"));
+  ["navInput","navResult","navCalendar","navSettings"].forEach(id =>
+    document.getElementById(id)?.classList.remove("active"));
   if (name === "input") {
     document.getElementById("screenInput").classList.add("visible");
     document.getElementById("navInput").classList.add("active");
+  } else if (name === "calendar") {
+    document.getElementById("screenCalendar").classList.add("visible");
+    document.getElementById("navCalendar").classList.add("active");
+    buildCalendarScreen();
+    fetchData(false);
   } else {
     document.getElementById("screenResult").classList.add("visible");
     document.getElementById("navResult").classList.add("active");
@@ -3938,6 +4033,211 @@ function adminDialogCancel() {
 function selectAttendance(type) {
   answers.attendanceType = type;
   buildConfirmStep();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// カレンダー・役員会スケジュール
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+let calTab = "schedule";         // "schedule" | "history"
+let calMeetingLoading = false;
+let histMeetingData = {};        // { meetingId: { responses, online, absent } }
+
+function buildCalendarScreen() {
+  const calEl = document.getElementById("calContent");
+
+  // アクティブ役員会バナー
+  const active = meetings.find(m => m.id === settings.activeMeetingId);
+  const banner = active
+    ? `<div style="background:var(--blue);color:white;border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:14px">
+        <div style="font-size:11px;opacity:.8;margin-bottom:2px">📋 現在登録受付中の役員会</div>
+        <div style="font-size:18px;font-weight:900">${active.date} ${active.label}</div>
+       </div>`
+    : `<div style="background:var(--gray-100);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:14px;color:var(--gray-500);text-align:center;font-size:14px">
+        ⚠️ 現在アクティブな役員会がありません<br><span style="font-size:11px">管理者が役員会を設定してください</span>
+       </div>`;
+
+  // タブ
+  const tabs = `<div class="cal-tab">
+    <button class="cal-tab-btn ${calTab==="schedule"?"active":""}" onclick="setCalTab('schedule')">📅 スケジュール</button>
+    <button class="cal-tab-btn ${calTab==="history"?"active":""}"  onclick="setCalTab('history')">📊 出欠一覧</button>
+  </div>`;
+
+  calEl.innerHTML = banner + tabs + (calTab === "schedule" ? buildScheduleTab() : buildHistoryTab());
+}
+
+function setCalTab(tab) { calTab = tab; buildCalendarScreen(); }
+
+// ── スケジュールタブ ──
+function buildScheduleTab() {
+  const addForm = adminAuth ? `
+    <div class="meeting-form">
+      <div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:10px">➕ 役員会を追加</div>
+      <input type="date" id="newMeetingDate" class="meeting-input" value="${new Date().toISOString().slice(0,10)}">
+      <input type="text"  id="newMeetingLabel" class="meeting-input" placeholder="役員会名（例：7月定例役員会）">
+      <button onclick="addMeeting()"
+        style="width:100%;padding:14px;border:none;border-radius:var(--radius-md);
+               background:var(--blue);color:white;font-size:16px;font-weight:700;
+               cursor:pointer;font-family:inherit">
+        追加する
+      </button>
+    </div>` : `<div style="text-align:center;font-size:12px;color:var(--gray-500);margin-bottom:12px">役員会の追加・設定は管理者のみ</div>`;
+
+  if (!meetings.length) {
+    return addForm + `<div class="empty" style="padding:40px 0"><div style="font-size:40px">📅</div><p>役員会が登録されていません</p></div>`;
+  }
+
+  const cards = meetings.map(m => {
+    const isActive = m.id === settings.activeMeetingId;
+    const adminBtns = adminAuth ? `
+      <div style="display:flex;gap:6px;margin-left:auto;flex-shrink:0">
+        <button class="meeting-btn" style="background:${isActive?"#6B8299":"var(--blue)"};color:white"
+                onclick="${isActive ? "deactivateMeeting()" : `activateMeeting('${m.id}')`}">
+          ${isActive ? "解除" : "設定"}
+        </button>
+        <button class="meeting-btn" style="background:#DC2626;color:white"
+                onclick="deleteMeeting('${m.id}')">削除</button>
+      </div>` : "";
+    return `<div class="meeting-card ${isActive?"active":""}">
+      <div>
+        <div class="meeting-date">${m.date}</div>
+        <div class="meeting-label">${m.label || "役員会"}</div>
+      </div>
+      ${isActive ? `<div class="meeting-badge">受付中</div>` : ""}
+      ${adminBtns}
+    </div>`;
+  }).join("");
+
+  return addForm + cards;
+}
+
+// ── 出欠一覧タブ ──
+function buildHistoryTab() {
+  if (!meetings.length) {
+    return `<div class="empty" style="padding:40px 0"><div style="font-size:40px">📊</div><p>役員会が登録されていません</p></div>`;
+  }
+
+  // ローディング中
+  if (calMeetingLoading) return `<div style="text-align:center;padding:40px;color:var(--gray-500)">⏳ 読み込み中...</div>`;
+
+  // 未取得の役員会があれば取得
+  const missingIds = meetings.map(m=>m.id).filter(id => !histMeetingData[id]);
+  if (missingIds.length > 0) {
+    calMeetingLoading = true;
+    loadHistoryData(missingIds).then(() => {
+      calMeetingLoading = false;
+      buildCalendarScreen();
+    });
+    return `<div style="text-align:center;padding:40px;color:var(--gray-500)">⏳ 読み込み中...</div>`;
+  }
+
+  // ヘッダー: 役員会の日付列
+  const mtgs = meetings; // 新しい順
+  const headerCols = mtgs.map(m =>
+    `<th style="min-width:64px;text-align:center;font-size:10px">${m.date.slice(5)}<br><span style="font-weight:400">${m.label||""}</span></th>`
+  ).join("");
+
+  // 行: 各支部×班
+  const rows = BRANCHES.flatMap(b => {
+    const gids = BRANCH_GROUPS[b.id];
+    return gids.map(gid => {
+      const grp = GROUPS.find(g => g.id === gid);
+      const cells = mtgs.map(m => {
+        const d = histMeetingData[m.id];
+        if (!d) return `<td class="hist-att-none">ー</td>`;
+        const key = b.id + "_" + gid;
+        if (d.absent && d.absent[key])  return `<td class="hist-att-absent">欠</td>`;
+        if (d.online && d.online[key])  return `<td class="hist-att-online">💻</td>`;
+        if (d.responses && Object.values(d.responses).some(r => r.branch===b.id && r.group===gid))
+          return `<td class="hist-att-taimen">○</td>`;
+        return `<td class="hist-att-none">ー</td>`;
+      }).join("");
+      return `<tr>
+        <td style="font-weight:700;white-space:nowrap;font-size:11px;text-align:left">${b.label.replace("支部","")}</td>
+        <td style="white-space:nowrap;font-size:11px">${grp?.label||gid}</td>
+        ${cells}
+      </tr>`;
+    });
+  }).join("");
+
+  return `
+    <div style="font-size:11px;color:var(--gray-500);margin-bottom:8px">○ 対面 &nbsp; 💻 オンライン &nbsp; 欠 欠席 &nbsp; ー 未登録</div>
+    <div class="hist-table-wrap">
+      <table class="hist-table">
+        <thead><tr>
+          <th style="text-align:left;min-width:60px">支部</th>
+          <th style="text-align:left;min-width:32px">班</th>
+          ${headerCols}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+async function loadHistoryData(meetingIds) {
+  await Promise.all(meetingIds.map(async id => {
+    const [r1,r2,r3] = await Promise.all([
+      fetch(`${DB_URL}/yakuinkai_v1_m_${id}.json`),
+      fetch(`${DB_URL}/yakuinkai_v1_m_${id}_online.json`),
+      fetch(`${DB_URL}/yakuinkai_v1_m_${id}_absent.json`),
+    ]);
+    const d1 = await r1.json();
+    const d2 = await r2.json();
+    const d3 = await r3.json();
+    histMeetingData[id] = { responses: d1, online: d2, absent: d3 };
+  }));
+}
+
+// ── 役員会 CRUD ──
+async function addMeeting() {
+  const date  = document.getElementById("newMeetingDate")?.value;
+  const label = document.getElementById("newMeetingLabel")?.value.trim() || "役員会";
+  if (!date) { showToast("⚠️ 日付を選択してください"); return; }
+  const rec = { date, label, ts: Date.now() };
+  await fetch(`${DB_URL}/${MEETINGS_KEY}.json`, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(rec),
+  });
+  await fetchData(false);
+  showToast(`✅ ${date} ${label} を登録しました`);
+  buildCalendarScreen();
+}
+
+async function deleteMeeting(id) {
+  if (!confirm(`この役員会を削除しますか？
+出欠データは残ります。`)) return;
+  if (settings.activeMeetingId === id) await deactivateMeeting();
+  await fetch(`${DB_URL}/${MEETINGS_KEY}/${id}.json`, {method: "DELETE"});
+  delete histMeetingData[id];
+  await fetchData(false);
+  showToast("🗑️ 役員会を削除しました");
+  buildCalendarScreen();
+}
+
+async function activateMeeting(id) {
+  settings.activeMeetingId = id;
+  saveSettings();
+  // ローカル状態をリセット（新しい役員会のデータを読み込む）
+  responses = []; onlineKeys.clear(); onlineMap.clear();
+  absentKeys.clear(); absentMap.clear(); historyRecords = [];
+  pendingSettingsWrite++;
+  try { await pushSettings(); } finally { pendingSettingsWrite--; }
+  await fetchData(true);
+  buildCalendarScreen();
+  const m = meetings.find(m=>m.id===id);
+  showToast(`📅 ${m?.date} ${m?.label||""} を受付中に設定しました`);
+}
+
+async function deactivateMeeting() {
+  settings.activeMeetingId = null;
+  saveSettings();
+  responses = []; onlineKeys.clear(); onlineMap.clear();
+  absentKeys.clear(); absentMap.clear(); historyRecords = [];
+  pendingSettingsWrite++;
+  try { await pushSettings(); } finally { pendingSettingsWrite--; }
+  await fetchData(true);
+  buildCalendarScreen();
+  showToast("役員会の受付設定を解除しました");
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
