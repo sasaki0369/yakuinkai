@@ -2757,7 +2757,17 @@ async function fetchData(showLoading = false) {
       buildResultScreen();
     }
     if (document.getElementById("screenCalendar")?.classList.contains("visible")) {
-      buildCalendarScreen();
+      // インポートオーバーレイが開いている間は再描画しない
+      // また入力中のフォームがあればフォーム値を保持して更新
+      const importOpen = document.getElementById("importOverlay")?.classList.contains("visible");
+      if (!importOpen) {
+        const savedDate  = document.getElementById("newMeetingDate")?.value;
+        const savedLabel = document.getElementById("newMeetingLabel")?.value;
+        buildCalendarScreen();
+        // 入力値を復元
+        if (savedDate)  { const el = document.getElementById("newMeetingDate");  if (el) el.value = savedDate;  }
+        if (savedLabel) { const el = document.getElementById("newMeetingLabel"); if (el) el.value = savedLabel; }
+      }
     }
   } catch(e) {
     setSyncing(false);
@@ -4035,15 +4045,17 @@ function openSettings() {
 
 function closeSettings() {
   document.getElementById("settingsOverlay").classList.remove("visible");
-  // 入力画面に戻る
-  showTab("input");
+  showTab(lastActiveTab || "input"); // 設定を開く前のタブに戻る
 }
+
+let lastActiveTab = "input"; // 直前のアクティブタブを記録
 
 function showTab(name) {
   ["screenInput","screenResult","screenCalendar"].forEach(id =>
     document.getElementById(id)?.classList.remove("visible"));
   ["navInput","navResult","navCalendar","navSettings"].forEach(id =>
     document.getElementById(id)?.classList.remove("active"));
+  lastActiveTab = name; // 現在のタブを記録
   if (name === "input") {
     document.getElementById("screenInput").classList.add("visible");
     document.getElementById("navInput").classList.add("active");
