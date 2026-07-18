@@ -2762,15 +2762,12 @@ async function fetchData(showLoading = false) {
     }
     if (document.getElementById("screenCalendar")?.classList.contains("visible")) {
       // インポートオーバーレイが開いている間は再描画しない
-      // また入力中のフォームがあればフォーム値を保持して更新
-      const importOpen = document.getElementById("importOverlay")?.classList.contains("visible");
-      if (!importOpen) {
-        const savedDate  = document.getElementById("newMeetingDate")?.value;
-        const savedLabel = document.getElementById("newMeetingLabel")?.value;
+      // フォーム入力中（activeElement がinput/textarea）も再描画しない
+      const importOpen   = document.getElementById("importOverlay")?.classList.contains("visible");
+      const activeTag    = document.activeElement?.tagName?.toUpperCase();
+      const isEditingForm = (activeTag === "INPUT" || activeTag === "TEXTAREA" || activeTag === "SELECT");
+      if (!importOpen && !isEditingForm) {
         buildCalendarScreen();
-        // 入力値を復元
-        if (savedDate)  { const el = document.getElementById("newMeetingDate");  if (el) el.value = savedDate;  }
-        if (savedLabel) { const el = document.getElementById("newMeetingLabel"); if (el) el.value = savedLabel; }
       }
     }
   } catch(e) {
