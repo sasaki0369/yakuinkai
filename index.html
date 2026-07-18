@@ -2924,6 +2924,29 @@ function progressLabels() {
 }
 
 function buildStep() {
+  // アクティブな役員会がない場合は登録不可
+  if (!settings.activeMeetingId) {
+    document.getElementById("progressWrap").innerHTML = "";
+    document.getElementById("backBtn").classList.remove("visible");
+    setStepContent(`
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                  height:100%;gap:20px;text-align:center;padding:24px">
+        <div style="font-size:60px">📅</div>
+        <div style="font-size:20px;font-weight:900;color:var(--text)">役員会が設定されていません</div>
+        <div style="font-size:14px;color:var(--gray-500);line-height:1.7">
+          参加登録を行うには<br>管理者が役員会を設定する必要があります
+        </div>
+        <button onclick="showTab('calendar')"
+                style="padding:16px 28px;border:none;border-radius:var(--radius-md);
+                       background:var(--blue);color:white;font-size:16px;font-weight:700;
+                       cursor:pointer;font-family:inherit">
+          📅 カレンダーを開く
+        </button>
+      </div>
+    `);
+    return;
+  }
+
   const flow   = getFlow();
   const labels = progressLabels();
 
