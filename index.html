@@ -3527,6 +3527,14 @@ function handleCellTap(bid, gid) {
 
 async function toggleCellState(bid, gid) {
   const key = bid + "_" + gid;
+  const taimenRecs = responses.filter(r => r.branch === bid && r.group === gid);
+  const taimenCnt  = taimenRecs.length;
+
+  if (taimenCnt > 1) {
+    // 対面が複数 → 件数訂正ダイアログを表示
+    showTaimenFixDialog(bid, gid, taimenRecs);
+    return;
+  }
 
   if (absentKeys.has(key)) {
     // 欠 → なし（元に戻す）
@@ -3550,14 +3558,91 @@ async function toggleCellState(bid, gid) {
       await Promise.all([deleteOnline(bid, gid), pushAbsent(bid, gid, ts)]);
     } finally { pendingOnlineWrite--; pendingAbsentWrite--; }
 
-  } else {
-    // なし → 💻オンライン
+  } else if (taimenCnt === 1) {
+    // 対面1件 → 💻オンライン
     const ts = Date.now();
+    responses = responses.filter(r => !(r.branch === bid && r.group === gid));
     onlineKeys.add(key);
     onlineMap.set(key, ts);
     buildCrossTable(responses.length);
+    pendingResponseWrite++;
     pendingOnlineWrite++;
-    try { await pushOnline(bid, gid, ts); } finally { pendingOnlineWrite--; }
+    try {
+      await Promise.all([deleteResponse(bid, gid), pushOnline(bid, gid, ts)]);
+    } finally { pendingResponseWrite--; pendingOnlineWrite--; }
+
+  } else {
+    // なし → 対面1件（管理者が手動追加）
+    const ts = Date.now();
+    const branch = BRANCHES.find(b => b.id === bid);
+    const group  = GROUPS.find(g => g.id === gid);
+    const rec = {
+      branch: bid, branchLabel: branch?.label,
+      group:  gid, groupLabel:  group?.label,
+      key, ts, adminAdded: true,
+      attendanceType: "taimen",
+    };
+    responses = [...responses, rec];
+    buildCrossTable(responses.length);
+    pendingResponseWrite++;
+    try {
+      await Promise.all([pushResponse(rec), pushHistory({...rec, note:"管理者追加"})]);
+    } finally { pendingResponseWrite--; }
+  }
+}
+
+// 対面が複数件ある場合の訂正ダイアログ
+function showTaimenFixDialog(bid, gid, recs) {
+  const branch = BRANCHES.find(b => b.id === bid);
+  const group  = GROUPS.find(g => g.id === gid);
+  const label  = `${branch?.label ?? bid} ${group?.label ?? gid}`;
+
+  const recList = recs.map((r, i) => {
+    const dt = new Date(r.ts).toLocaleString("ja-JP");
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #E2E8F0">
+      <span style="font-size:13px;color:#374151">${i+1}件目 ${dt}</span>
+      <button onclick="adminDeleteTaimen('${bid}','${gid}','${r.key || bid+'_'+gid}',${r.ts})"
+              style="background:#DC2626;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:13px;cursor:pointer">削除</button>
+    </div>`;
+  }).join("");
+
+  const overlay = document.createElement("div");
+  overlay.id = "taimenFixOverlay";
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px";
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:20px;width:100%;max-width:380px;max-height:80vh;overflow-y:auto">
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px">🏛️ 対面出席の訂正</div>
+      <div style="font-size:13px;color:#6B7280;margin-bottom:14px">${label} — ${recs.length}件登録されています</div>
+      ${recList}
+      <button onclick="document.getElementById('taimenFixOverlay').remove()"
+              style="margin-top:14px;width:100%;background:#6B7280;color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;cursor:pointer">閉じる</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function adminDeleteTaimen(bid, gid, keyStr, ts) {
+  // responses から当該タイムスタンプの1件だけ削除
+  const idx = responses.findIndex(r => r.branch === bid && r.group === gid && r.ts == ts);
+  if (idx >= 0) responses.splice(idx, 1);
+
+  // 残件数を確認：0件なら Firebase キーごと削除、1件なら残ったレコードで上書き
+  const remaining = responses.filter(r => r.branch === bid && r.group === gid);
+  buildCrossTable(responses.length);
+
+  pendingResponseWrite++;
+  try {
+    if (remaining.length === 0) {
+      await deleteResponse(bid, gid);
+    } else {
+      await pushResponse(remaining[remaining.length - 1]);
+    }
+  } finally { pendingResponseWrite--; }
+
+  // ダイアログを更新
+  const overlay = document.getElementById("taimenFixOverlay");
+  if (overlay) overlay.remove();
+  if (remaining.length > 1) {
+    showTaimenFixDialog(bid, gid, remaining);
   }
 }
 
@@ -3586,9 +3671,9 @@ function buildCrossTable(total) {
                   <div style="display:flex;align-items:center;justify-content:center;height:40px;font-size:15px;font-weight:900;color:#DC2626">欠</div>
                 </td>`;
       } else if (cnt === 0 && !online) {
-        // 未参加 → タップでオンライン登録
+        // 未参加 → タップで対面登録（管理者）
         return `<td style="height:40px;text-align:center;cursor:pointer;color:#CBD5E1;font-size:10px"
-                    onclick="handleCellTap('${b.id}','${g.id}')" title="タップで💻オンライン→欠→元に戻る（管理者のみ）">－</td>`;
+                    onclick="handleCellTap('${b.id}','${g.id}')" title="タップで対面→💻→欠→元に戻る（管理者のみ）">－</td>`;
       } else if (online) {
         // オンライン参加 → タップで欠席へ
         return `<td style="height:40px;padding:0;text-align:center;cursor:pointer;background:#EFF6FF"
@@ -3596,9 +3681,12 @@ function buildCrossTable(total) {
                   <div style="display:flex;align-items:center;justify-content:center;height:40px;font-size:16px">💻</div>
                 </td>`;
       } else {
-        // 対面参加あり（タップでオンライン→欠→元に戻る）
-        return `<td style="height:40px;text-align:center;cursor:pointer;font-weight:700;color:#1D6FA4"
-                    onclick="handleCellTap('${b.id}','${g.id}')" title="タップで変更（管理者のみ）">${cnt}</td>`;
+        // 対面参加あり → タップで💻へ（複数件なら訂正ダイアログ）
+        const fixNote = cnt > 1 ? `⚠️${cnt}件` : cnt;
+        const bgColor = cnt > 1 ? "#FFF7ED" : "transparent";
+        const color   = cnt > 1 ? "#D97706" : "#1D6FA4";
+        return `<td style="height:40px;text-align:center;cursor:pointer;font-weight:700;color:${color};background:${bgColor}"
+                    onclick="handleCellTap('${b.id}','${g.id}')" title="${cnt > 1 ? '重複あり：タップで訂正（管理者のみ）' : 'タップで💻→欠→元に戻る（管理者のみ）'}">${fixNote}</td>`;
       }
     }).join("");
 
