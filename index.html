@@ -668,7 +668,7 @@ td {
 }
 
 /* ─── 参加形式選択ボタン ─── */
-.att-grid { display: flex; gap: 8px; margin-bottom: 12px; flex-shrink: 0; }
+.att-grid { display: flex; gap: 8px; margin-bottom: 12px; flex: 1; }
 .att-btn {
   flex: 1;
   padding: 12px 4px;
@@ -1066,8 +1066,7 @@ td {
     <div class="seat-your-seat" id="seatYourSeat">　</div>
     <div class="seat-map" id="seatMap"></div>
     <div style="display:flex;gap:10px">
-      <button class="seat-confirm-btn" style="background:var(--gray-500);flex:1" onclick="seatExit()">終了する</button>
-      <button class="seat-confirm-btn" style="flex:1" onclick="closeSeatOverlay()">次の登録へ →</button>
+      <button class="seat-confirm-btn" style="width:100%" onclick="closeSeatOverlay()">終了する</button>
     </div>
   </div>
 </div>
@@ -3322,18 +3321,15 @@ function buildConfirmStep() {
         <span class="att-icon">✗</span><span>欠席</span>
       </button>
     </div>
-    <div class="action-grid">
-      <button class="action-btn" style="background:#6B8299" onclick="openDialog('edit')">
-        <span style="font-size:28px">✏️</span>修正する
-      </button>
+    <div style="margin-top:8px">
       ${attType ? `
-      <button class="action-btn" style="background:${confirmBg}"
+      <button class="action-btn" style="background:${confirmBg};width:100%"
               onclick="openDialog('confirm')">
         <span style="font-size:28px">${confirmIcon}</span>
         ${confirmLabel}
       </button>` : `
       <button class="action-btn" disabled
-              style="background:#ccc;cursor:not-allowed;opacity:0.6">
+              style="background:#ccc;cursor:not-allowed;opacity:0.6;width:100%">
         <span style="font-size:28px">☝️</span>参加形式を選択
       </button>`}
     </div>
