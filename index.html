@@ -55,6 +55,9 @@
   --shadow-lg:  0 8px 32px rgba(0,0,0,.13);
 }
 html { height: 100%; }
+html {
+  background: #0d3a5c;
+}
 body {
   font-family: 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
   background: var(--gray-50);
@@ -62,6 +65,9 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  max-width: 480px;
+  margin: 0 auto;
+  box-shadow: 0 0 40px rgba(0,0,0,.4);
 }
 
 /* ─── 横向き警告 ─── */
@@ -79,7 +85,8 @@ body {
   text-align: center;
   padding: 32px;
 }
-@media (orientation: landscape) { .lswarn { display: flex !important; } }
+/* スマホ横向き（高さが480px未満）のみ警告、PC等の横長画面は除外 */
+@media (orientation: landscape) and (max-height: 480px) { .lswarn { display: flex !important; } }
 
 /* ─── ヘッダー ─── */
 header {
