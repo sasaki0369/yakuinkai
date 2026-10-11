@@ -3536,16 +3536,26 @@ async function toggleCellState(bid, gid) {
     return;
   }
 
+  const branch = BRANCHES.find(b => b.id === bid);
+  const group  = GROUPS.find(g => g.id === gid);
+  const baseLog = { branch: bid, branchLabel: branch?.label, group: gid, groupLabel: group?.label, key };
+
   if (absentKeys.has(key)) {
-    // 欠 → なし（元に戻す）
+    // 欠 → なし（管理者が取消）
     absentKeys.delete(key);
     absentMap.delete(key);
     buildCrossTable(responses.length);
+    const ts = Date.now();
     pendingAbsentWrite++;
-    try { await deleteAbsent(bid, gid); } finally { pendingAbsentWrite--; }
+    try {
+      await Promise.all([
+        deleteAbsent(bid, gid),
+        pushHistory({...baseLog, ts, attendanceType:"absent", note:"管理者取消（欠席→未登録）"}),
+      ]);
+    } finally { pendingAbsentWrite--; }
 
   } else if (onlineKeys.has(key)) {
-    // 💻オンライン → 欠
+    // 💻オンライン → 欠（管理者変更）
     onlineKeys.delete(key);
     onlineMap.delete(key);
     const ts = Date.now();
@@ -3555,11 +3565,15 @@ async function toggleCellState(bid, gid) {
     pendingOnlineWrite++;
     pendingAbsentWrite++;
     try {
-      await Promise.all([deleteOnline(bid, gid), pushAbsent(bid, gid, ts)]);
+      await Promise.all([
+        deleteOnline(bid, gid),
+        pushAbsent(bid, gid, ts),
+        pushHistory({...baseLog, ts, attendanceType:"absent", note:"管理者変更（オンライン→欠席）"}),
+      ]);
     } finally { pendingOnlineWrite--; pendingAbsentWrite--; }
 
   } else if (taimenCnt === 1) {
-    // 対面1件 → 💻オンライン
+    // 対面1件 → 💻オンライン（管理者変更）
     const ts = Date.now();
     responses = responses.filter(r => !(r.branch === bid && r.group === gid));
     onlineKeys.add(key);
@@ -3568,25 +3582,27 @@ async function toggleCellState(bid, gid) {
     pendingResponseWrite++;
     pendingOnlineWrite++;
     try {
-      await Promise.all([deleteResponse(bid, gid), pushOnline(bid, gid, ts)]);
+      await Promise.all([
+        deleteResponse(bid, gid),
+        pushOnline(bid, gid, ts),
+        pushHistory({...baseLog, ts, attendanceType:"online", note:"管理者変更（対面→オンライン）"}),
+      ]);
     } finally { pendingResponseWrite--; pendingOnlineWrite--; }
 
   } else {
     // なし → 対面1件（管理者が手動追加）
     const ts = Date.now();
-    const branch = BRANCHES.find(b => b.id === bid);
-    const group  = GROUPS.find(g => g.id === gid);
     const rec = {
-      branch: bid, branchLabel: branch?.label,
-      group:  gid, groupLabel:  group?.label,
-      key, ts, adminAdded: true,
-      attendanceType: "taimen",
+      ...baseLog, ts, adminAdded: true, attendanceType: "taimen",
     };
     responses = [...responses, rec];
     buildCrossTable(responses.length);
     pendingResponseWrite++;
     try {
-      await Promise.all([pushResponse(rec), pushHistory({...rec, note:"管理者追加"})]);
+      await Promise.all([
+        pushResponse(rec),
+        pushHistory({...rec, note:"管理者追加（対面出席）"}),
+      ]);
     } finally { pendingResponseWrite--; }
   }
 }
@@ -3622,6 +3638,7 @@ function showTaimenFixDialog(bid, gid, recs) {
 
 async function adminDeleteTaimen(bid, gid, keyStr, ts) {
   // responses から当該タイムスタンプの1件だけ削除
+  const deleted = responses.find(r => r.branch === bid && r.group === gid && r.ts == ts);
   const idx = responses.findIndex(r => r.branch === bid && r.group === gid && r.ts == ts);
   if (idx >= 0) responses.splice(idx, 1);
 
@@ -3629,13 +3646,26 @@ async function adminDeleteTaimen(bid, gid, keyStr, ts) {
   const remaining = responses.filter(r => r.branch === bid && r.group === gid);
   buildCrossTable(responses.length);
 
+  const branch = BRANCHES.find(b => b.id === bid);
+  const group  = GROUPS.find(g => g.id === gid);
+  const logRec = {
+    branch: bid, branchLabel: branch?.label,
+    group:  gid, groupLabel:  group?.label,
+    key: bid + "_" + gid,
+    ts: Date.now(),
+    attendanceType: "taimen",
+    note: `管理者削除（重複訂正・元登録ts:${ts}）`,
+  };
+
   pendingResponseWrite++;
   try {
+    const writes = [pushHistory(logRec)];
     if (remaining.length === 0) {
-      await deleteResponse(bid, gid);
+      writes.push(deleteResponse(bid, gid));
     } else {
-      await pushResponse(remaining[remaining.length - 1]);
+      writes.push(pushResponse(remaining[remaining.length - 1]));
     }
+    await Promise.all(writes);
   } finally { pendingResponseWrite--; }
 
   // ダイアログを更新
